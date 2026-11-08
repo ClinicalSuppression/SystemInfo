@@ -40,6 +40,35 @@ public partial class MainWindow : Window
         BuildContextMenu();
         RefreshThumb();
 
+        // Headless test harness: if --fit-test/--compact-test was specified, apply fit/compact, write results, exit.
+        if (App.RunTestAction is not null)
+        {
+            InitNativeResize();
+            _collector = new UnifiedSensorCollector();
+            _collector.Open(true);
+            LayoutStore.EnsureComponentBoxes(_layout, _collector.Components, _collector.Descriptors);
+            RebuildBoxes();
+            RefreshAll();
+            var logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SystemInfo", "perf.log");
+            var lines = new List<string> { "SystemInfo compact-test", $"action={App.RunTestAction}" };
+            if (App.RunTestAction == "fit")
+            {
+                FitAllBoxes();
+                lines.Add($"applied=fit; visible={_boxControls.Count}");
+                lines.AddRange(_boxControls.Select(c => $"box={c.Layout.Title} x={c.Layout.X:0} y={c.Layout.Y:0} w={c.Layout.Width:0} h={c.Layout.Height:0}"));
+            }
+            else if (App.RunTestAction == "compact")
+            {
+                CompactWindow();
+                lines.Add($"applied=compact; window={Width:0}x{Height:0}");
+                lines.AddRange(_boxControls.Select(c => $"box={c.Layout.Title} x={c.Layout.X:0} y={c.Layout.Y:0} w={c.Layout.Width:0} h={c.Layout.Height:0}"));
+            }
+            lines.Add($"window={Width:0}x{Height:0}");
+            Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
+            File.WriteAllLines(logPath, lines);
+            System.Diagnostics.Process.GetCurrentProcess().Kill();
+        }
+
         Loaded += (_, _) =>
         {
             InitNativeResize();
@@ -48,6 +77,30 @@ public partial class MainWindow : Window
             LayoutStore.EnsureComponentBoxes(_layout, _collector.Components, _collector.Descriptors);
             RebuildBoxes();
             RefreshAll();
+            // Headless test harness: run fit/compact, write results, exit.
+            if (App.RunTestAction is not null)
+            {
+                var logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SystemInfo", "perf.log");
+                var lines = new List<string> { $"SystemInfo compact-test - {DateTime.Now:yyyy-MM-dd HH:mm:ss}", $"action={App.RunTestAction}" };
+                if (App.RunTestAction == "fit")
+                {
+                    FitAllBoxes();
+                    lines.Add($"applied=fit boxes; visible={_boxControls.Count}");
+                    foreach (var c in _boxControls) lines.Add($"box={c.Layout.Title} x={c.Layout.X:0.0} y={c.Layout.Y:0.0} w={c.Layout.Width:0.0} h={c.Layout.Height:0.0}");
+                }
+                else if (App.RunTestAction == "compact")
+                {
+                    CompactWindow();
+                    lines.Add($"applied=compact; window={Width:0.0}x{Height:0.0}");
+                    foreach (var c in _boxControls) lines.Add($"box={c.Layout.Title} x={c.Layout.X:0.0} y={c.Layout.Y:0.0} w={c.Layout.Width:0.0} h={c.Layout.Height:0.0}");
+                }
+                lines.Add($"window={Width:0.0}x{Height:0.0}");
+                Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
+                File.WriteAllLines(logPath, lines);
+                // Terminate immediately to avoid leaking the hidden window/WNDProc into the user's session
+                System.Diagnostics.Process.GetCurrentProcess().Kill();
+                return;
+            }
             SizeChanged += (_, _) => GrowCanvasToFit();
             LocationChanged += (_, _) => SaveLayout();
             _tray = new TrayService(this);
@@ -200,6 +253,13 @@ public partial class MainWindow : Window
         _hiddenSubmenu = miHidden;
         RefreshHiddenSubmenu(miHidden);
         var miProfiles = new MenuItem { Header = "Profiles" };
+        var miLayout = new MenuItem { Header = "Layout" };
+        var miFitBoxes = new MenuItem { Header = "Fit boxes (shrink to content, no clipping)" };
+        miFitBoxes.Click += (_, _) => FitAllBoxes();
+        var miCompact = new MenuItem { Header = "Compact window (fit + snap boxes together)" };
+        miCompact.Click += (_, _) => CompactWindow();
+        miLayout.Items.Add(miFitBoxes);
+        miLayout.Items.Add(miCompact);
         var miSaveProf = new MenuItem { Header = "Save profile…" };
         miSaveProf.Click += (_, _) => ProfileStore.SaveProfile(this, _layout);
         var miLoadProf = new MenuItem { Header = "Load profile…" };
@@ -237,6 +297,7 @@ public partial class MainWindow : Window
         menu.Items.Add(miGraph);
         menu.Items.Add(new Separator());
         menu.Items.Add(miAdd);
+        menu.Items.Add(miLayout);
         menu.Items.Add(miProfiles);
         menu.Items.Add(miHidden);
         menu.Items.Add(miSaveState);
@@ -518,6 +579,96 @@ public partial class MainWindow : Window
         if (needH > Height && Height < MaxHeight)
             Height = Math.Min(MaxHeight, needH);
         return (8, nextY);
+    }
+
+    private void FitAllBoxes()
+    {
+        if (_collector is null) return;
+        Dictionary<string, double?> values;
+        try { values = _collector.Collect(); } catch (Exception ex) { App.LogError(ex); return; }
+        var fs = ScaleHelper.FontSize(_layout.FontScale);
+        var bh = ScaleHelper.BarHeight(_layout.BarScale);
+        var gh = ScaleHelper.GraphHeight(_layout.GraphScale);
+        foreach (var bl in _layout.Boxes.Where(b => b.Visible).ToList())
+        {
+            // Build the box first so we can measure it (important for terminal/processes).
+            // Find the ComponentBox instance (may be null if not built yet — always exists after RebuildBoxes).
+            var ctrl = _boxControls.FirstOrDefault(c => c.Layout == bl);
+            if (ctrl is not null)
+            {
+                double naturalW = ctrl.MeasureNaturalWidth(_collector.Descriptors, values, fs);
+                double naturalH = ctrl.MeasureNaturalHeight(_collector.Descriptors, fs, bh, gh);
+                SetBoxSize(ctrl, naturalW, naturalH);
+            }
+            else
+            {
+                bl.Width = 320; bl.Height = 210;
+            }
+        }
+        SaveLayout();
+        RebuildBoxes();
+        RefreshAll();
+        GrowCanvasToFit();
+    }
+
+    private void CompactWindow()
+    {
+        FitAllBoxes();
+        // Build row clusters: boxes whose vertical spans overlap belong to the same row cluster.
+        var visible = _layout.Boxes.Where(b => b.Visible).OrderBy(b => b.Y).ThenBy(b => b.X).ToList();
+        if (visible.Count == 0) return;
+
+        // Greedy overlap clustering (preserves row/column identity).
+        var clusters = new List<List<BoxLayout>>();
+        foreach (var b in visible)
+        {
+            bool added = false;
+            foreach (var cl in clusters)
+            {
+                double clTop = cl.Min(o => o.Y), clBottom = cl.Max(o => o.Y + o.Height);
+                if (b.Y < clBottom && b.Y + b.Height > clTop) { cl.Add(b); added = true; break; }
+            }
+            if (!added) clusters.Add(new List<BoxLayout> { b });
+        }
+
+        const double GAP = 4.0, PAD = 8.0;
+        double curY = PAD;
+        double maxRight = PAD;
+        foreach (var cl in clusters)
+        {
+            // Keep horizontal order within the cluster, pack L->R with GAP.
+            var ordered = cl.OrderBy(b => b.X).ToList();
+            double curX = PAD;
+            double clBottom = curY;
+            foreach (var b in ordered)
+            {
+                b.X = curX;
+                b.Y = curY;
+                curX += b.Width + GAP;
+                clBottom = Math.Max(clBottom, b.Y + b.Height);
+            }
+            maxRight = Math.Max(maxRight, curX - GAP);
+            curY = clBottom + GAP;
+        }
+
+        // Fit window to content bounds.
+        Width = Math.Clamp(maxRight + PAD, MinWidth, MaxWidth);
+        Height = Math.Clamp(curY + PAD, MinHeight, MaxHeight);
+        SaveLayout();
+        RebuildBoxes();
+        RefreshAll();
+        GrowCanvasToFit();
+    }
+
+    private void SetBoxSize(ComponentBox ctrl, double width, double height)
+    {
+        // Apply measured size with a small safety margin to guarantee no clipping.
+        double w = Math.Clamp(width, 200, 2000);
+        double h = Math.Clamp(height + 4, 90, 2000); // +4 safety
+        ctrl.Layout.Width = w;
+        ctrl.Layout.Height = h;
+        ctrl.Width = w;
+        ctrl.Height = h;
     }
 
     private void RemoveBox(ComponentBox box)

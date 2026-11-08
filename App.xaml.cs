@@ -16,6 +16,9 @@ namespace SystemInfo
         /// <summary>In-memory stress layout used only for --profile --stress runs (never written to disk).</summary>
         internal static WindowLayout? ProfileLayoutOverride { get; set; }
 
+        /// <summary>Test action to run after window becomes visible (for --fit-test, --compact-test).</summary>
+        internal static string? RunTestAction { get; set; }
+
         /// <summary>One box per hardware component with ALL its LHM sensors, all Graph-enabled — worst-case UI/tree/graph load.</summary>
         private static WindowLayout BuildStressLayout(UnifiedSensorCollector collector)
         {
@@ -89,50 +92,57 @@ namespace SystemInfo
                 return;
             }
 
-            if (options.HasProfileAction)
+            if (options.HasProfileAction || options.HasTestAction)
             {
-                // Hidden full-lifetime harness: run a 60s perf sample invisibly, write perf log, exit.
+                // Hidden full-lifetime harness: apply fit/compact or perf sampling invisibly, write results, exit.
                 var collector = new UnifiedSensorCollector();
                 collector.Open();
                 var layout = options.Stress ? BuildStressLayout(collector) : LayoutStore.LoadOrDefault();
                 App.ProfileLayoutOverride = layout;
-                var profileWindow = new MainWindow();
-                profileWindow.Opacity = 0;          // still renders (WPF draws opacity=0 windows)
+                if (options.HasTestAction)
+                    App.RunTestAction = options.FitTest ? "fit" : "compact";
+                var profileWindow = new MainWindow();   // Loaded will see RunTestAction and exec test before 1s refresh; Kill() terminates the process
+                MainWindow = profileWindow;   // CRITICAL: App.MainWindow must be set for Shutdown() to terminate cleanly
+                profileWindow.WindowState = WindowState.Normal;
+                profileWindow.Opacity = 0;      // invisible but shows and fires Loaded
+                profileWindow.ShowInTaskbar = false;
                 profileWindow.Topmost = false;
-                profileWindow.Left = -5000; profileWindow.Top = 0;
                 profileWindow.Show();
-                // 1 Hz internal RefreshAll() already drives collection/rendering; we sample process metrics every 5 s.
-                var clock = System.Diagnostics.Stopwatch.StartNew();
-                var lines = new List<string>
+                if (options.HasProfileAction)
                 {
-                    $"SystemInfo profile - {DateTime.Now:yyyy-MM-dd HH:mm:ss}",
-                    $"stress={options.Stress}, lhs=ALL enabled",
-                    "elapsed_s,working_set_bytes,private_bytes,handles,cpu_percent"
-                };
-                TimeSpan? lastCpu = null;
-                DateTime lastSample = DateTime.UtcNow;
-                var sampler = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
-                sampler.Tick += (_, _) =>
-                {
-                    var p = Process.GetCurrentProcess();
-                    p.Refresh();
-                    double cpuPct = 0;
-                    var cur = p.TotalProcessorTime;
-                    if (lastCpu.HasValue)
+                    // 1 Hz internal RefreshAll() already drives collection/rendering; we sample process metrics every 5 s.
+                    var clock = System.Diagnostics.Stopwatch.StartNew();
+                    var lines = new List<string>
                     {
-                        double elapsed = (DateTime.UtcNow - lastSample).TotalSeconds;
-                        cpuPct = elapsed > 0 ? (cur - lastCpu.Value).TotalSeconds / elapsed / Math.Max(1, Environment.ProcessorCount) * 100.0 : 0;
-                    }
-                    lines.Add($"{clock.Elapsed.TotalSeconds:0},{p.WorkingSet64},{p.PrivateMemorySize64},{p.HandleCount},{cpuPct:0.0}");
-                    lastCpu = cur; lastSample = DateTime.UtcNow;
-                    if (clock.Elapsed.TotalSeconds >= 60)
+                        $"SystemInfo profile - {DateTime.Now:yyyy-MM-dd HH:mm:ss}",
+                        $"stress={options.Stress}, lhs=ALL enabled",
+                        "elapsed_s,working_set_bytes,private_bytes,handles,cpu_percent"
+                    };
+                    TimeSpan? lastCpu = null;
+                    DateTime lastSample = DateTime.UtcNow;
+                    var sampler = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+                    sampler.Tick += (_, _) =>
                     {
-                        sampler.Stop();
-                        try { File.WriteAllLines(options.ProfilePath!, lines); } catch { }
-                        Shutdown();
-                    }
-                };
-                sampler.Start();
+                        var p = Process.GetCurrentProcess();
+                        p.Refresh();
+                        double cpuPct = 0;
+                        var cur = p.TotalProcessorTime;
+                        if (lastCpu.HasValue)
+                        {
+                            double elapsed = (DateTime.UtcNow - lastSample).TotalSeconds;
+                            cpuPct = elapsed > 0 ? (cur - lastCpu.Value).TotalSeconds / elapsed / Math.Max(1, Environment.ProcessorCount) * 100.0 : 0;
+                        }
+                        lines.Add($"{clock.Elapsed.TotalSeconds:0},{p.WorkingSet64},{p.PrivateMemorySize64},{p.HandleCount},{cpuPct:0.0}");
+                        lastCpu = cur; lastSample = DateTime.UtcNow;
+                        if (clock.Elapsed.TotalSeconds >= 60)
+                        {
+                            sampler.Stop();
+                            try { File.WriteAllLines(options.ProfilePath!, lines); } catch { }
+                            Shutdown();
+                        }
+                    };
+                    sampler.Start();
+                }
                 return;
             }
 

@@ -11,8 +11,11 @@ namespace SystemInfo
         public bool Minimized { get; set; }
         public string? ProfilePath { get; set; }   // --profile [out]: headless perf sampling
         public bool Stress { get; set; }           // --stress: enable all sensors + graphs for max load
+        public bool FitTest { get; set; }          // --fit-test: headless Fit boxes verification (writes perf.log)
+        public bool CompactTest { get; set; }      // --compact-test: headless Compact window verification (writes perf.log)
         public bool HasExportAction => JsonPath is not null || ExportPath is not null;
         public bool HasProfileAction => ProfilePath is not null;
+        public bool HasTestAction => FitTest || CompactTest;
     }
 
     /// <summary>Pure, testable command-line parser (no side effects).</summary>
@@ -28,6 +31,8 @@ namespace SystemInfo
             "  --export [report.txt]        Save the full report as text, then exit\n" +
             "  --profile [out]              Sample memory/CPU for 60s, write to [out] (default perf.log), then exit\n" +
             "  --stress                     Enable all sensors + graphs (max load); pair with --profile\n" +
+            "  --fit-test                   Run Fit boxes headlessly, write result to perf.log, then exit (use with --stress for worst case)\n" +
+            "  --compact-test               Run Compact window headlessly, write result to perf.log, then exit\n" +
             "  --help                       Show this help\n" +
             "\nWithout a path, the report is saved to Documents\\SystemInfo-Report.json / .txt.\n";
 
@@ -58,6 +63,10 @@ namespace SystemInfo
                     options.ProfilePath = PeekPath(args, ref i) ?? DefaultProfilePath();
                 else if (arg.Equals("--stress", StringComparison.OrdinalIgnoreCase))
                     options.Stress = true;
+                else if (arg.Equals("--fit-test", StringComparison.OrdinalIgnoreCase))
+                    options.FitTest = true;
+                else if (arg.Equals("--compact-test", StringComparison.OrdinalIgnoreCase))
+                    options.CompactTest = true;
                 // Unknown args are ignored (forward-compatible).
             }
             return options;

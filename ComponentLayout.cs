@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace SystemInfo
 {
     /// <summary>Component type grouping sensors into boxes (one box per hardware instance).</summary>
@@ -93,6 +95,8 @@ namespace SystemInfo
         public static double[] BarHeights { get; } = [4, 6, 8, 10, 12];
         public static double[] GraphHeights { get; } = [28, 40, 56, 72, 96];
         public static string[] ScaleNames { get; } = ["XS", "S", "M", "L", "XL"];
+        /// <summary>Absolute minimum bar width (px) — a shown bar never shrinks below this.</summary>
+        public const double BarMinWidth = 50;
 
         public static double FontSize(int idx) => FontSizes[Math.Clamp(idx, 0, 4)];
         public static double BarHeight(int idx) => BarHeights[Math.Clamp(idx, 0, 4)];
@@ -159,6 +163,33 @@ namespace SystemInfo
                 _ => ("", 0, 100, 0),
             };
         }
+
+        /// <summary>Measure natural text width for a string using the Segoe UI fallback chain.</summary>
+        public static double MeasureTextWidth(string text, double fontSize, bool semibold = false)
+        {
+            if (string.IsNullOrEmpty(text)) return 0;
+            var typeface = new System.Windows.Media.Typeface(
+                new System.Windows.Media.FontFamily("Segoe UI"),
+                System.Windows.FontStyles.Normal,
+                semibold ? System.Windows.FontWeights.SemiBold : System.Windows.FontWeights.Normal,
+                System.Windows.FontStretches.Normal);
+            double pixels = 96.0;
+            var ft = new System.Windows.Media.FormattedText(
+                text,
+                CultureInfo.InvariantCulture,
+                System.Windows.FlowDirection.LeftToRight,
+                typeface,
+                fontSize,
+                System.Windows.Media.Brushes.Black,
+                pixels);
+            return ft.Width;
+        }
+
+        /// <summary>Width needed to render this sensor name without ellipsis at the current font size.</summary>
+        public static double NameWidth(string name, double fontSize) => MeasureTextWidth(name, fontSize) + 8;
+
+        /// <summary>Width needed to render this sensor's value without ellipsis at the current font size (semibold).</summary>
+        public static double ValueWidth(string formattedValue, double fontSize) => MeasureTextWidth(formattedValue, fontSize + 1, semibold: true) + 8;
 
         public static double Normalize(double? value, double min, double max)
         {

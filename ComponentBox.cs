@@ -430,6 +430,89 @@ public sealed class ComponentBox : Border
         }
     }
 
+    /// <summary>
+    /// Measure the natural required size for this box given current content and fonts — used by Fit boxes / Compact.
+    /// Natural width is computed from actual text measurements; never causes ellipsis.
+    /// </summary>
+    public (double Width, double Height) MeasureNaturalSize(IReadOnlyDictionary<string, SensorDescriptor> catalog, IReadOnlyDictionary<string, double?> values, IReadOnlyDictionary<string, SensorHistory> histories, double fontSize, double barHeight, double graphHeight)
+    {
+        double naturalW = MeasureNaturalWidth(catalog, values, fontSize);
+        double naturalH = MeasureNaturalHeight(catalog, fontSize, barHeight, graphHeight);
+        return (naturalW, naturalH);
+    }
+
+    /// <summary>Minimum width that renders all text (name, value, title, terminal) with no ellipsis.</summary>
+    public double MeasureNaturalWidth(IReadOnlyDictionary<string, SensorDescriptor> catalog, IReadOnlyDictionary<string, double?> values, double fontSize)
+    {
+        double pad = 24; // Border(6*2) + _rows margin(6*2)
+
+        double rowW = 200;
+        bool anyText = false, anyBar = false, anyGraph = false;
+        double nameMax = 0;
+        double valMax = 0;
+
+        foreach (var id in Layout.SensorIds)
+        {
+            int mode = GetMode(id, catalog.TryGetValue(id, out var d) ? d : null);
+            if (ScaleHelper.ModeHasText(mode)) anyText = true;
+            if (ScaleHelper.ModeHasBar(mode)) anyBar = true;
+            if (ScaleHelper.ModeHasGraph(mode)) anyGraph = true;
+
+            string name = d?.Name ?? id;
+            double nameW = ScaleHelper.MeasureTextWidth(name, fontSize) + 8;
+            nameMax = Math.Max(nameMax, nameW);
+
+            if (ScaleHelper.ModeHasText(mode))
+            {
+                values.TryGetValue(id, out double? v);
+                string sample = d is null ? "9999.99" : ScaleHelper.Format(v, d, Layout.NetworkSpeedUnit);
+                double valW = ScaleHelper.MeasureTextWidth(sample, fontSize + 1, semibold: true) + 8;
+                valMax = Math.Max(valMax, valW);
+            }
+        }
+
+        if (Layout.SensorIds.Count > 0)
+        {
+            double barW = anyBar ? ScaleHelper.BarMinWidth : 0;
+            double valueW = anyText ? valMax : 0;
+            rowW = pad + nameMax + valueW + (anyText && anyBar ? 2 : 0) + barW;
+            if (anyGraph)
+                rowW = Math.Max(rowW, 140); // graph minimum width
+        }
+
+        // Header title must fit (12px SemiBold) plus header buttons.
+        double titleW = ScaleHelper.MeasureTextWidth(Layout.Title, 12, semibold: true) + 8 + 90;
+
+        // Terminal toolbar natural width (if any).
+        double toolbarW = Layout.CustomKind == "app" ? 380 : 0;
+
+        double w = Math.Max(rowW, Math.Max(titleW, toolbarW));
+        w = Math.Clamp(w, 200, 2000);
+        return Math.Ceiling(w);
+    }
+
+    public double MeasureNaturalHeight(IReadOnlyDictionary<string, SensorDescriptor> catalog, double fontSize, double barHeight, double graphHeight)
+    {
+        double border = 2; // BorderThickness 1*2
+        // Force WPF to compute natural heights using current width.
+        double innerWidth = Math.Max(120, Width - 12);
+        DockPanel? dock = GetDockPanel();
+        if (dock is null) return Height;
+        dock.Measure(new System.Windows.Size(innerWidth, double.MaxValue));
+        double natural = dock.DesiredSize.Height + border + 12; // DockPanel margin 6*2
+        if (Layout.CustomKind == "app")
+            natural = Math.Max(natural, 160); // toolbar + terminal min
+        return Math.Ceiling(natural);
+    }
+
+    private DockPanel? GetDockPanel()
+    {
+        var g = Child as Grid;
+        if (g is null) return null;
+        foreach (var c in g.Children) if (c is DockPanel dp) return dp;
+        return null;
+    }
+
     private void Header_MouseLeftButtonDown(object sender, WpfMouseButtonEventArgs e)
     {
         if (_locked || e.ChangedButton != MouseButton.Left) return;
@@ -688,7 +771,7 @@ public sealed class ComponentBox : Border
         double valueW = anyText ? Math.Clamp(Math.Max(44, (fontSize + 1) * (maxValLen * 0.58 + 0.5)), 44, 140) : 0;
         double nameW = Math.Min(150, Math.Max(90, inner * 0.42));
         // Keep the whole row inside the box at narrow widths (fixes right-side cutoff).
-        double minBar = anyBar ? 30 : 0;
+        double minBar = anyBar ? ScaleHelper.BarMinWidth : 0;
         if (inner < nameW + valueW + 12 + minBar)
         {
             nameW = Math.Max(60, inner - valueW - 12 - minBar);
