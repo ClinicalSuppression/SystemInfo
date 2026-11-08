@@ -480,8 +480,8 @@ public sealed class ComponentBox : Border
                 rowW = Math.Max(rowW, 140); // graph minimum width
         }
 
-        // Header title must fit (12px SemiBold) plus header buttons.
-        double titleW = ScaleHelper.MeasureTextWidth(Layout.Title, 12, semibold: true) + 8 + 90;
+        // Header title must fit — measure the ACTUAL title text so boxes expand to show it fully (no ellipsis).
+        double titleW = ScaleHelper.MeasureTextWidth(Layout.Title, 12, semibold: true) + 8 /*start pad*/ + 4 /*newline pad*/ + 58 /*+ Sensors*/ + 50 /*+ gap + eye*/ + 34 /*+ gap + close*/;
 
         // Terminal toolbar natural width (if any).
         double toolbarW = Layout.CustomKind == "app" ? 380 : 0;
@@ -753,9 +753,22 @@ public sealed class ComponentBox : Border
         // Uniform row sizing: name/value get a capped share, bar fills the rest (largest possible, same for every row).
         bool anyText = Layout.SensorIds.Any(id => ScaleHelper.ModeHasText(GetMode(id, catalog.TryGetValue(id, out var dd) ? dd : null)));
         bool anyBar = Layout.SensorIds.Any(id => ScaleHelper.ModeHasBar(GetMode(id, catalog.TryGetValue(id, out var dd2) ? dd2 : null)));
+        bool anyGraph = Layout.SensorIds.Any(id => ScaleHelper.ModeHasGraph(GetMode(id, catalog.TryGetValue(id, out var dd3) ? dd3 : null)));
         // inner is the ACTUAL ScrollViewer viewport (minus _rows margins) so a visible 6px scrollbar can't clip the right edge.
         double viewport = (_scroll is not null && _scroll.ViewportWidth > 0) ? _scroll.ViewportWidth : (_scroll is not null && _scroll.ActualWidth > 0 ? _scroll.ActualWidth : Layout.Width - 14);
         double inner = Math.Max(120, viewport - 12);
+        // Compute name width from the ACTUAL longest sensor name in this box — no content clipping allowed.
+        double nameMin = 0;
+        if (anyText)
+        {
+            foreach (string id in Layout.SensorIds)
+            {
+                catalog.TryGetValue(id, out SensorDescriptor? d2);
+                string nm = d2?.Name ?? id;
+                nameMin = Math.Max(nameMin, ScaleHelper.MeasureTextWidth(nm, fontSize) + 8);
+            }
+        }
+        double nameW = anyText ? Math.Clamp(nameMin, 60, 260) : 0;
         // Right-justified value must never clip: size it to the longest formatted value in this box.
         int maxValLen = 0;
         if (anyText)
@@ -768,12 +781,12 @@ public sealed class ComponentBox : Border
                 maxValLen = Math.Max(maxValLen, s.Length);
             }
         }
-        double valueW = anyText ? Math.Clamp(Math.Max(44, (fontSize + 1) * (maxValLen * 0.58 + 0.5)), 44, 140) : 0;
-        double nameW = Math.Min(150, Math.Max(90, inner * 0.42));
+        double valueW = anyText ? Math.Clamp(Math.Max(44, (fontSize + 1) * (maxValLen * 0.58 + 0.5)), 44, 160) : 0;
         // Keep the whole row inside the box at narrow widths (fixes right-side cutoff).
         double minBar = anyBar ? ScaleHelper.BarMinWidth : 0;
         if (inner < nameW + valueW + 12 + minBar)
         {
+            // Shrink only the name toward its minimum, never below readable width
             nameW = Math.Max(60, inner - valueW - 12 - minBar);
         }
         double barWidth = anyBar ? Math.Max(30, inner - nameW - (anyText ? valueW + 6 : 0) - 6) : 0;

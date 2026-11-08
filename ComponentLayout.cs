@@ -221,7 +221,7 @@ namespace SystemInfo
             return $"{value.Value.ToString(fmt)} {d.Unit}".Trim();
         }
 
-        /// <summary>Shorten a hardware name intelligently for box titles (generic for any PC).</summary>
+        /// <summary>Shorten a hardware name intelligently for box titles (keeps key info, hides generic fluff).</summary>
         public static string ShortTitle(ComponentType type, string fullName, IReadOnlyList<SensorDescriptor>? sensorsForComponent = null)
         {
             if (string.IsNullOrWhiteSpace(fullName)) return fullName;
@@ -232,23 +232,51 @@ namespace SystemInfo
                 string ddr = TryFindDdrSpeed(sensorsForComponent);
                 return string.IsNullOrWhiteSpace(ddr) ? "RAM" : $"RAM {ddr}";
             }
+            // CPU-style AMD/Intel names: drop maker, keep model. e.g. "AMD Ryzen 7 5700G with Radeon Graphics" → "Ryzen 7 5700G".
+            // GPU-style: "AMD Radeon RX 7800 XT" / "NVIDIA GeForce RTX 4090" → "RX 7800 XT" / "RTX 4090".
+            if (type == ComponentType.Cpu || type == ComponentType.Gpu)
+            {
+                // Tokens to drop (manufacturer fluff). Model tokens like Ryzen, RX, RTX, Xeon stay.
+                foreach (string drop in new[] { "Advanced Micro Devices", "AMD", "Intel", "NVIDIA", "Radeon", "GeForce", "Intel(R)", "(R)", "Graphics", "Processor", "Series" })
+                {
+                    // remove token and surrounding whitespace
+                    s = System.Text.RegularExpressions.Regex.Replace(s, @"(^|\s)" + System.Text.RegularExpressions.Regex.Escape(drop) + @"(\s|$)", " ", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                }
+                // Drop "with Radeon Graphics" style suffix
+                int withIdx = s.IndexOf(" with ", StringComparison.OrdinalIgnoreCase);
+                if (withIdx >= 0) s = s[..withIdx].Trim();
+                // Collapse double spaces
+                s = System.Text.RegularExpressions.Regex.Replace(s, @"\s{2,}", " ").Trim();
+                // If nothing remains, fallback to original
+                if (string.IsNullOrWhiteSpace(s)) s = fullName;
+                return s.Trim();
+            }
+            // Storage: model name as-is (LHM name is already the model).
+            if (type == ComponentType.StorageHdd || type == ComponentType.StorageSsd || type == ComponentType.Storage)
+            {
+                // Drop capacity suffix if present (rare) and collapse double spaces.
+                return System.Text.RegularExpressions.Regex.Replace(s, @"\s{2,}", " ").Trim();
+            }
+            // Network: drop generic Windows names and trailing index where harmless.
+            if (type == ComponentType.Network)
+            {
+                foreach (string drop in new[] { "Network Connection", "Ethernet adapter", "Adapter", "vEthernet" })
+                {
+                    s = s.Replace(drop, "", StringComparison.OrdinalIgnoreCase).Trim();
+                }
+                s = System.Text.RegularExpressions.Regex.Replace(s, @"\s{2,}", " ").Trim();
+                if (string.IsNullOrWhiteSpace(s) || s.Length < 2) s = fullName;
+                return s.Trim();
+            }
+            // Generic cleanup
             foreach (string v in new[] { "Advanced Micro Devices", "AMD", "Intel", "NVIDIA", "Qualcomm" })
             {
                 if (s.StartsWith(v + " ", StringComparison.OrdinalIgnoreCase)) s = s[(v.Length + 1)..].TrimStart();
             }
-            int withIdx = s.IndexOf(" with ", StringComparison.OrdinalIgnoreCase);
-            if (withIdx >= 0) s = s[..withIdx].Trim();
-            string[] drop = { "Radeon", "GeForce", "Graphics", "Processor" };
-            var parts = s.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries)
-                .Where(p => !drop.Contains(p, StringComparer.OrdinalIgnoreCase)).ToList();
-            string s2 = string.Join(" ", parts);
-            if (string.IsNullOrWhiteSpace(s2)) s2 = fullName;
-            if (type == ComponentType.StorageHdd || type == ComponentType.StorageSsd || type == ComponentType.Storage)
-            {
-                // Storage: model name as-is (LHM name is already the model).
-                return s2.Trim();
-            }
-            return s2.Trim();
+            int withIdx2 = s.IndexOf(" with ", StringComparison.OrdinalIgnoreCase);
+            if (withIdx2 >= 0) s = s[..withIdx2].Trim();
+            System.Text.RegularExpressions.Regex.Replace(s, @"\s{2,}", " ").Trim();
+            return s.Trim();
         }
 
         private static string TryFindDdrSpeed(IReadOnlyList<SensorDescriptor>? sensorsForComponent)

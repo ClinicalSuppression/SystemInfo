@@ -77,6 +77,8 @@ public partial class MainWindow : Window
             LayoutStore.EnsureComponentBoxes(_layout, _collector.Components, _collector.Descriptors);
             RebuildBoxes();
             RefreshAll();
+            // Auto-fit on startup so contents are never clipped (user can manually adjust box widths afterward)
+            try { FitAllBoxes(); } catch { }
             // Headless test harness: run fit/compact, write results, exit.
             if (App.RunTestAction is not null)
             {

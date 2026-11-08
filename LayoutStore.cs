@@ -194,6 +194,13 @@ public static class LayoutStore
             if (!AppHelper.IsAllowedAppId(b.AppId)) b.AppId = "cmd";
         }
         w.GraphMigrationVersion = 2;
+        // Intelligently shorten brand-inherited titles on load (does NOT touch user-renamed titles: only shorten if title contains manufacturer tokens).
+        bool IsBrand(string t) => t.Contains("Advanced Micro Devices", StringComparison.OrdinalIgnoreCase) || t.Contains("AMD ", StringComparison.OrdinalIgnoreCase) || t.Contains("Intel", StringComparison.OrdinalIgnoreCase) || t.Contains("NVIDIA", StringComparison.OrdinalIgnoreCase) || t.Contains("Radeon", StringComparison.OrdinalIgnoreCase) || t.Contains("GeForce", StringComparison.OrdinalIgnoreCase) || t.Contains("with Radeon", StringComparison.OrdinalIgnoreCase) || t.Contains("with GeForce", StringComparison.OrdinalIgnoreCase) || t.Contains(" Qualcomm ", StringComparison.OrdinalIgnoreCase);
+        foreach (var b in w.Boxes)
+        {
+            if (!string.IsNullOrWhiteSpace(b.Title) && IsBrand(b.Title))
+                b.Title = ScaleHelper.ShortTitle(b.ComponentType, b.Title);
+        }
         return w;
     }
 
