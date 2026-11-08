@@ -9,7 +9,10 @@ namespace SystemInfo
         public string? JsonPath { get; set; }
         public string? ExportPath { get; set; }
         public bool Minimized { get; set; }
+        public string? ProfilePath { get; set; }   // --profile [out]: headless perf sampling
+        public bool Stress { get; set; }           // --stress: enable all sensors + graphs for max load
         public bool HasExportAction => JsonPath is not null || ExportPath is not null;
+        public bool HasProfileAction => ProfilePath is not null;
     }
 
     /// <summary>Pure, testable command-line parser (no side effects).</summary>
@@ -23,6 +26,8 @@ namespace SystemInfo
             "  --minimized                  Start hidden / minimized\n" +
             "  --json [report.json]         Save the full report as JSON, then exit\n" +
             "  --export [report.txt]        Save the full report as text, then exit\n" +
+            "  --profile [out]              Sample memory/CPU for 60s, write to [out] (default perf.log), then exit\n" +
+            "  --stress                     Enable all sensors + graphs (max load); pair with --profile\n" +
             "  --help                       Show this help\n" +
             "\nWithout a path, the report is saved to Documents\\SystemInfo-Report.json / .txt.\n";
 
@@ -31,6 +36,9 @@ namespace SystemInfo
 
         public static string DefaultTextPath()
             => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "SystemInfo-Report.txt");
+
+        public static string DefaultProfilePath()
+            => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SystemInfo", "perf.log");
 
         public static CliOptions Parse(string[] args)
         {
@@ -46,6 +54,10 @@ namespace SystemInfo
                     options.ExportPath = PeekPath(args, ref i) ?? DefaultTextPath();
                 else if (arg.Equals("--minimized", StringComparison.OrdinalIgnoreCase))
                     options.Minimized = true;
+                else if (arg.Equals("--profile", StringComparison.OrdinalIgnoreCase))
+                    options.ProfilePath = PeekPath(args, ref i) ?? DefaultProfilePath();
+                else if (arg.Equals("--stress", StringComparison.OrdinalIgnoreCase))
+                    options.Stress = true;
                 // Unknown args are ignored (forward-compatible).
             }
             return options;

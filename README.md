@@ -60,6 +60,9 @@ SystemInfo.exe --json           save JSON report to Documents\SystemInfo-Report.
 SystemInfo.exe --json out.json  save JSON report to out.json, then exit
 SystemInfo.exe --export         save text report to Documents\SystemInfo-Report.txt, then exit
 SystemInfo.exe --export out.txt save text report to out.txt, then exit
+SystemInfo.exe --profile        sample memory/CPU for 60s (writes perf.log), then exit — hidden
+SystemInfo.exe --profile out.log sample and write to out.log, then exit
+SystemInfo.exe --stress --profile  worst-case stress: all LHM sensors + graphs with --profile
 SystemInfo.exe --help           show help
 ```
 

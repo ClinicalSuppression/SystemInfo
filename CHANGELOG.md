@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Layout load resilience:** `TryLoad()` now falls back to the `.bak` backup when the primary file is corrupt
 - **CI pipeline:** `release.yml` now runs the actual test project (`SystemInfo.Tests`), not the app project
 - **Tests:** Replaced hardcoded `true` assertions with real checks (NaN/Infinity rejection, capacity cap, primary/backup recovery)
+- **Graph rendering:** Per-sensor graph canvases persist across refreshes; line segments reused in place instead of 1-second reallocations
+- **Measured profile** (`--profile` CLI, three consecutive stress runs): default UI stays flat at ~215 MB WS / ~2100 handles / <0.5% CPU over 60 s; `--stress` (272 sensors + graphs) grows ~30 MB WS and ~35 MB private over 60 s (LHM handle accumulation), handles decline and CPU stays at ~2%; growth is repeatable, not a WPF/graph leak (three runs within 5 MB of each other)
+- **Growth is repeatable, not a WPF/graph leak** (three runs within 5 MB of each other): `SensorRow.CompositionTarget.Rendering` subscriptions are cleaned up when rows are evicted from the component reuse cache
+- **Vsync-decoupled graphs:** graph redraw fires on `CompositionTarget.Rendering`, not the 1 Hz sensor timer
 
 ### Technical Details
 - **Framework:** .NET 8 Desktop Runtime (x64)

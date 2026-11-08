@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.IO;
+using System.Text.Json;
 using System.Windows;
 using MessageBox = System.Windows.MessageBox;
 using MessageBoxButton = System.Windows.MessageBoxButton;
@@ -10,6 +12,36 @@ namespace SystemInfo
     {
         private Mutex? singleInstanceMutex;
         private bool ownsMutex;
+
+        /// <summary>In-memory stress layout used only for --profile --stress runs (never written to disk).</summary>
+        internal static WindowLayout? ProfileLayoutOverride { get; set; }
+
+        /// <summary>One box per hardware component with ALL its LHM sensors, all Graph-enabled — worst-case UI/tree/graph load.</summary>
+        private static WindowLayout BuildStressLayout(UnifiedSensorCollector collector)
+        {
+            var stress = new WindowLayout();
+            int y = 8;
+            foreach (var (key, type, name) in collector.Components)
+            {
+                var sensors = collector.Descriptors.Values.Where(d => d.ComponentKey == key).ToList();
+                if (sensors.Count == 0) continue;
+                var modes = new Dictionary<string, int>(StringComparer.Ordinal);
+                var sensorIds = new List<string>();
+                foreach (var d in sensors)
+                {
+                    sensorIds.Add(d.Id);
+                    modes[d.Id] = (int)RowMode.Text | (int)RowMode.Bar | (int)RowMode.Graph;
+                }
+                stress.Boxes.Add(new BoxLayout
+                {
+                    ComponentKey = key, ComponentType = type, Title = name,
+                    X = 8, Y = y, Width = 640, Height = 400,
+                    SensorIds = sensorIds, GraphSensorIds = sensorIds.ToList(), SensorModes = modes, CombineGraphs = true,
+                });
+                y += 420;
+            }
+            return stress;
+        }
 
         protected override void OnStartup(StartupEventArgs e)
         {
@@ -54,6 +86,53 @@ namespace SystemInfo
                     MessageBoxButton.OK,
                     MessageBoxImage.Information);
                 Shutdown();
+                return;
+            }
+
+            if (options.HasProfileAction)
+            {
+                // Hidden full-lifetime harness: run a 60s perf sample invisibly, write perf log, exit.
+                var collector = new UnifiedSensorCollector();
+                collector.Open();
+                var layout = options.Stress ? BuildStressLayout(collector) : LayoutStore.LoadOrDefault();
+                App.ProfileLayoutOverride = layout;
+                var profileWindow = new MainWindow();
+                profileWindow.Opacity = 0;          // still renders (WPF draws opacity=0 windows)
+                profileWindow.Topmost = false;
+                profileWindow.Left = -5000; profileWindow.Top = 0;
+                profileWindow.Show();
+                // 1 Hz internal RefreshAll() already drives collection/rendering; we sample process metrics every 5 s.
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+                var lines = new List<string>
+                {
+                    $"SystemInfo profile - {DateTime.Now:yyyy-MM-dd HH:mm:ss}",
+                    $"stress={options.Stress}, lhs=ALL enabled",
+                    "elapsed_s,working_set_bytes,private_bytes,handles,cpu_percent"
+                };
+                TimeSpan? lastCpu = null;
+                DateTime lastSample = DateTime.UtcNow;
+                var sampler = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+                sampler.Tick += (_, _) =>
+                {
+                    var p = Process.GetCurrentProcess();
+                    p.Refresh();
+                    double cpuPct = 0;
+                    var cur = p.TotalProcessorTime;
+                    if (lastCpu.HasValue)
+                    {
+                        double elapsed = (DateTime.UtcNow - lastSample).TotalSeconds;
+                        cpuPct = elapsed > 0 ? (cur - lastCpu.Value).TotalSeconds / elapsed / Math.Max(1, Environment.ProcessorCount) * 100.0 : 0;
+                    }
+                    lines.Add($"{clock.Elapsed.TotalSeconds:0},{p.WorkingSet64},{p.PrivateMemorySize64},{p.HandleCount},{cpuPct:0.0}");
+                    lastCpu = cur; lastSample = DateTime.UtcNow;
+                    if (clock.Elapsed.TotalSeconds >= 60)
+                    {
+                        sampler.Stop();
+                        try { File.WriteAllLines(options.ProfilePath!, lines); } catch { }
+                        Shutdown();
+                    }
+                };
+                sampler.Start();
                 return;
             }
 

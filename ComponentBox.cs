@@ -726,7 +726,11 @@ public sealed class ComponentBox : Border
             keep.Add(id);
         }
         // Drop cache entries for sensors no longer shown on this box.
-        foreach (string stale in _rowCache.Keys.Where(k => !keep.Contains(k)).ToList()) _rowCache.Remove(stale);
+        foreach (string stale in _rowCache.Keys.Where(k => !keep.Contains(k)).ToList())
+        {
+            if (_rowCache.TryGetValue(stale, out var staleRow)) staleRow.UnsubscribeRenderingFrame();
+            _rowCache.Remove(stale);
+        }
         SetAlert(anyAlert);
     }
 
@@ -1027,6 +1031,8 @@ public sealed class SensorRow : StackPanel
     private Canvas? _graphCanvas;
     private readonly List<Line> _graphLines = new();
     private TextBlock? _awaitText;
+    private bool _graphDirty;
+    private SensorHistory? _lastHistory;
     private readonly string _keyArgs;
 
     /// <summary>
@@ -1098,6 +1104,8 @@ public sealed class SensorRow : StackPanel
         {
             var graph = BuildOrUpdateGraph(d, history, graphH, Math.Max(120, boxWidth - 16));
             Children.Add(graph);
+            // Vsync-aligned graph redraw: set dirty in UpdateFrom() instead of rebuilding on the 1 Hz timer.
+            System.Windows.Media.CompositionTarget.Rendering += OnRenderingFrame;
         }
     }
 
@@ -1125,10 +1133,25 @@ public sealed class SensorRow : StackPanel
             _barFill.Width = Math.Max(0.1, pct * _barInnerW);
             _barFill.Background = ThemeService.HeatBrush(_invertHeat ? 1 - pct : pct);
         }
-        if (_graphCanvas is not null)
+        if (_graphCanvas is not null && history is not null)
         {
-            BuildOrUpdateGraph(_d, history, _graphH, Math.Max(120, Width));
+            // Decouple graph redraw from the 1 Hz timer: mark dirty, paint on next vsync.
+            _lastHistory = history;
+            _graphDirty = true;
         }
+    }
+
+    /// <summary>Unsubscribe from the vsync-aligned rendering hook (called when a row is evicted from the reuse cache).</summary>
+    public void UnsubscribeRenderingFrame()
+    {
+        System.Windows.Media.CompositionTarget.Rendering -= OnRenderingFrame;
+    }
+
+    private void OnRenderingFrame(object? sender, EventArgs e)
+    {
+        if (!_graphDirty || _graphCanvas is null || _lastHistory is null) return;
+        _graphDirty = false;
+        BuildOrUpdateGraph(_d, _lastHistory, _graphH, Math.Max(120, Width));
     }
 
     private Canvas BuildOrUpdateGraph(SensorDescriptor? d, SensorHistory? history, double graphH, double graphW)

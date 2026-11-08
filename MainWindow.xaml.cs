@@ -30,7 +30,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        _layout = LayoutStore.LoadOrDefault();
+        _layout = App.ProfileLayoutOverride ?? LayoutStore.LoadOrDefault();
         try { ThemeService.Apply(_layout.ThemeScheme, ThemeService.ResolveEffectiveMode(_layout.ThemeMode)); } catch { ThemeService.Apply("Midnight", "Dark"); }
         Width = _layout.Width;
         Height = _layout.Height;

@@ -60,13 +60,17 @@ Check("section text helper", ReportFormatter.SectionToText(report.Sections[0]) =
 Check("empty section helper", ReportFormatter.SectionToText(report.Sections[1]) == "(no data)");
 
 Console.WriteLine("CliArgs");
-Check("no args", !CliArgs.Parse([]).HasExportAction && !CliArgs.Parse([]).Help);
+Check("no args", !CliArgs.Parse([]).HasExportAction && !CliArgs.Parse([]).Help && !CliArgs.Parse([]).HasProfileAction);
 Check("--help", CliArgs.Parse(["--help"]).Help);
 Check("--json <path>", CliArgs.Parse(["--json", "out.json"]).JsonPath == "out.json");
 Check("--export <path>", CliArgs.Parse(["--export", "out.txt"]).ExportPath == "out.txt");
+Check("--profile <path>", CliArgs.Parse(["--profile", "out.log"]).ProfilePath == "out.log");
+Check("--profile default path", CliArgs.Parse(["--profile"]).ProfilePath == CliArgs.DefaultProfilePath());
+Check("--stress flag", CliArgs.Parse(["--stress"]).Stress);
+Check("--stress --profile combo", CliArgs.Parse(["--stress", "--profile"]).Stress && CliArgs.Parse(["--stress", "--profile"]).HasProfileAction);
 Check("--json default path", CliArgs.Parse(["--json"]).JsonPath == CliArgs.DefaultJsonPath());
 Check("--export default path", CliArgs.Parse(["--export"]).ExportPath == CliArgs.DefaultTextPath());
-Check("unknown args ignored", !CliArgs.Parse(["--future-flag"]).HasExportAction);
+Check("unknown args ignored", !CliArgs.Parse(["--future-flag"]).HasExportAction && !CliArgs.Parse(["--future-flag"]).HasProfileAction);
 
 Console.WriteLine("SensorRange removed - gadget uses fixed sections + LHM catalog");
 Check("ReportFormatter still works", ReportFormatter.FormatBytes(1024) == "1.0 KB");
