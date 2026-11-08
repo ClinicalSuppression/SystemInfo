@@ -85,16 +85,47 @@ try
     var loaded = LayoutStore.LoadOrDefault();
     Check("layout roundtrip", !loaded.KeepOnTop && loaded.Boxes.Count == 1 && loaded.Boxes[0].SensorIds.Count == 1);
     Check("normalize clamps width", LayoutStore.Normalize(new WindowLayout { Width = 1 }).Width >= 300);
+
+    // backup is only created when the primary already exists; do a second save to seed it
+    var w2 = LayoutStore.LoadOrDefault(); // w (KeepOnTop=false)
+    w2.KeepOnTop = true;
+    LayoutStore.Save(w2); // now .bak == w (false)
+    Check("backup file written", File.Exists(LayoutStore.BackupFilePath));
+
+    // primary still good at this point
+    Check("TryLoad returns true on good primary", LayoutStore.TryLoad(out var goodLayout));
+    Check("TryLoad reads correct values", goodLayout.KeepOnTop == true);
+    Check("TryLoadFromBackup returns true", LayoutStore.TryLoadFromBackup(out var bakLayout));
+    Check("TryLoadFromBackup returns backup values", bakLayout.KeepOnTop == false);
+
+    // corrupt primary, keep good backup
     File.WriteAllText(LayoutStore.LayoutFilePath, "{ broken");
-    try { File.Delete(LayoutStore.BackupFilePath); } catch { }
     var recovered = LayoutStore.LoadOrDefault();
-    Check("corrupt falls back to backup/default", recovered is not null);
+    Check("corrupt primary recovered from backup", recovered is not null && recovered.KeepOnTop == false);
+    Check("TryLoad falls back to backup when primary is corrupt", LayoutStore.TryLoad(out var recoveredLayout) && recoveredLayout.KeepOnTop == false);
+    Check("TrySave succeeds", LayoutStore.TrySave(w2)); // rewrites primary; backup goes bad (copies broken primary)
 }
 finally
 {
     LayoutStore.LayoutFilePathOverride = null;
     try { Directory.Delete(tmpDir, recursive: true); } catch { }
 }
+
+Console.WriteLine("SensorHistory");
+var h1 = new SensorHistory { Capacity = 10 };
+h1.Push(1.5); h1.Push(2.5);
+Check("history keeps pushed values", h1.Values.Count == 2);
+var h2 = new SensorHistory { Capacity = 3 };
+h2.Push(double.NaN); h2.Push(double.PositiveInfinity); h2.Push(3); h2.Push(4); h2.Push(5);
+Check("NaN and Infinity are dropped", h2.Values.Count == 3);
+Check("history caps at capacity", h2.Values.Count == 3);
+Check("history stores oldest-first ring order", h2.Values.First() == 3 && h2.Values.Last() == 5);
+var hNull = new SensorHistory { Capacity = 2 };
+hNull.Push(null);
+Check("null values dropped", hNull.Values.Count == 0);
+var h4 = new SensorHistory { Capacity = 1 };
+h4.Push(10); h4.Push(20);
+Check("capacity 1 keeps only newest", h4.Values.Count == 1 && h4.Values.First() == 20);
 
 Console.WriteLine();
 Console.WriteLine($"RESULT: {passed} passed, {failed} failed");

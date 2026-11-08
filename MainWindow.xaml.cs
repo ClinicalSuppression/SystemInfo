@@ -44,7 +44,7 @@ public partial class MainWindow : Window
         {
             InitNativeResize();
             _collector = new UnifiedSensorCollector();
-            _collector.Open(true, false);
+            _collector.Open(true);
             LayoutStore.EnsureComponentBoxes(_layout, _collector.Components, _collector.Descriptors);
             RebuildBoxes();
             RefreshAll();

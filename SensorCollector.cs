@@ -21,7 +21,6 @@ public sealed class UnifiedSensorCollector : IDisposable
     private readonly Dictionary<string, SensorDescriptor> _catalog = new(StringComparer.Ordinal);
     private readonly List<LhmISensor> _sensors = new();
     private readonly List<(LhmIHardware hw, ComponentType type, string componentKey)> _hardwares = new();
-    private NativeCpuFallback? _native;
     private static readonly object Lock = new();
 
     public IReadOnlyDictionary<string, SensorDescriptor> Descriptors => _catalog;
@@ -38,9 +37,9 @@ public sealed class UnifiedSensorCollector : IDisposable
             foreach (var d in _catalog.Values) { if (values.TryGetValue(d.Id, out var v) && v.HasValue) live++; else unavailable++; }
         }
         else { live = sensors; unavailable = 0; }
-        string lib = "LibreHardwareMonitorLib 0.9.4 + PDH (Ring0-free)";
+        string lib = "LibreHardwareMonitorLib 0.9.6";
         if (!LhmAvailable) return $"Source: {lib} — NOT available{(string.IsNullOrWhiteSpace(LhmError) ? "" : $": {LhmError}")}";
-        string tail = "Ring0 (MSR temp/power/fan) needs PawnIO/admin; PDH Effective MHz covers clocks Ring0-free. GPU/NVML-ADL runs user-mode.";
+        string tail = "Ring0 (MSR temp/power/fan) needs PawnIO + administrator; user-mode sensors work without elevation.";
         return values is null
             ? $"Source: {lib} — {hw} hardware, {sensors} sensors. {tail}"
             : $"Source: {lib} — {hw} hardware, {sensors} sensors (live now: {live}, unavailable/NaN: {unavailable}). {tail}";
@@ -57,7 +56,7 @@ public sealed class UnifiedSensorCollector : IDisposable
         return sb.ToString();
     }
 
-    public void Open(bool enableLhm = true, bool enableOhm = false)
+    public void Open(bool enableLhm = true)
     {
         lock (Lock)
         {
@@ -137,7 +136,6 @@ public sealed class UnifiedSensorCollector : IDisposable
                     values[id] = v;
                 }
             }
-            try { if (_native is not null) foreach (var kv in _native.Poll()) values[kv.Key] = kv.Value; } catch { }
         }
         return values;
     }
@@ -183,8 +181,6 @@ public sealed class UnifiedSensorCollector : IDisposable
     {
         lock (Lock)
         {
-            try { _native?.Dispose(); } catch { }
-            _native = null;
             try { _computer?.Close(); } catch { }
             _computer = null;
         }

@@ -42,15 +42,103 @@ public static class LayoutStore
         return Normalize(new WindowLayout());
     }
 
-    public static void Save(WindowLayout layout)
+    /// <summary>
+    /// Attempts to load layout from disk. Falls back to the .bak backup if the primary file is missing or corrupt.
+    /// Returns true on success, false if both fail.
+    /// </summary>
+    public static bool TryLoad(out WindowLayout layout)
+    {
+        // Primary.
+        string path = LayoutFilePath;
+        if (File.Exists(path))
+        {
+            try
+            {
+                var w = JsonSerializer.Deserialize<WindowLayout>(File.ReadAllText(path), Opts);
+                if (w is not null && w.Boxes is not null)
+                {
+                    layout = Normalize(w);
+                    return true;
+                }
+            }
+            catch { }
+        }
+        // Backup fallback.
+        layout = new WindowLayout();
+        return TryLoadFromBackup(out layout);
+    }
+
+    /// <summary>
+    /// Attempts to load layout from backup if primary fails. Returns true on success, false if both fail.
+    /// </summary>
+    public static bool TryLoadFromBackup(out WindowLayout layout)
+    {
+        string bak = BackupFilePath;
+        if (!File.Exists(bak))
+        {
+            layout = new WindowLayout();
+            return false;
+        }
+
+        try
+        {
+            var w = JsonSerializer.Deserialize<WindowLayout>(File.ReadAllText(bak), Opts);
+            if (w is not null && w.Boxes is not null)
+            {
+                layout = Normalize(w);
+                return true;
+            }
+            else
+            {
+                layout = new WindowLayout();
+                return false;
+            }
+        }
+        catch
+        {
+            layout = new WindowLayout();
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Saves layout to disk with atomic write and backup rotation. Returns true on success, false if fail.
+    /// </summary>
+    public static bool TrySave(WindowLayout layout)
     {
         string path = LayoutFilePath;
         string dir = Path.GetDirectoryName(path) ?? ".";
-        Directory.CreateDirectory(dir);
-        string tmp = path + ".tmp";
-        File.WriteAllText(tmp, JsonSerializer.Serialize(Normalize(layout), Opts));
-        if (File.Exists(path)) { try { File.Copy(path, BackupFilePath, overwrite: true); } catch { } }
-        File.Move(tmp, path, overwrite: true);
+        try
+        {
+            Directory.CreateDirectory(dir);
+            string tmp = path + ".tmp";
+            File.WriteAllText(tmp, JsonSerializer.Serialize(layout, Opts));
+            if (File.Exists(path))
+            {
+                try
+                {
+                    File.Copy(path, BackupFilePath, overwrite: true);
+                }
+                catch { }
+            }
+            File.Move(tmp, path, overwrite: true);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Saves layout if possible; logs failure to App.LogError but never throws.
+    /// </summary>
+    public static void Save(WindowLayout layout)
+    {
+        if (!TrySave(layout))
+        {
+            try { App.LogError(new Exception($"Layout save failed at {LayoutFilePath}")); } catch { }
+        }
     }
 
     public static WindowLayout Normalize(WindowLayout w)

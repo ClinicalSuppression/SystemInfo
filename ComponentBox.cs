@@ -54,6 +54,7 @@ public sealed class ComponentBox : Border
     }
 
     private readonly StackPanel _rows = new() { Margin = new Thickness(6, 1, 6, 1) };
+    private readonly Dictionary<string, SensorRow> _rowCache = new(StringComparer.Ordinal);
     private ScrollViewer? _scroll;
     private readonly TextBlock _titleText;
     private readonly Canvas? _graphCanvas;
@@ -694,6 +695,8 @@ public sealed class ComponentBox : Border
         }
         double barWidth = anyBar ? Math.Max(30, inner - nameW - (anyText ? valueW + 6 : 0) - 6) : 0;
         bool anyAlert = false;
+        var keep = new HashSet<string>(StringComparer.Ordinal);
+        double boxWidth = inner + 16;
         foreach (string id in Layout.SensorIds)
         {
             catalog.TryGetValue(id, out SensorDescriptor? d);
@@ -708,8 +711,22 @@ public sealed class ComponentBox : Border
                 if (d.Category.Equals("Temperature", StringComparison.OrdinalIgnoreCase) && v.Value > 85) anyAlert = true;
                 if (d.Category.Equals("Load", StringComparison.OrdinalIgnoreCase) && v.Value > 98) anyAlert = true;
             }
-            _rows.Children.Add(new SensorRow(id, d, v, h, inner + 16, fontSize, barHeight, showText, showBar, showGraph, barWidth, nameW, valueW, Layout.NetworkSpeedUnit));
+            string keyArgs = SensorRow.KeyOf(showText, showBar, showGraph, fontSize, barHeight, nameW, valueW, barWidth, boxWidth);
+            if (_rowCache.TryGetValue(id, out var cached) && cached.KeyArgs == keyArgs)
+            {
+                cached.UpdateFrom(v, h, Layout.NetworkSpeedUnit);
+                _rows.Children.Add(cached);
+            }
+            else
+            {
+                var row = new SensorRow(id, d, v, h, boxWidth, fontSize, barHeight, showText, showBar, showGraph, barWidth, nameW, valueW, Layout.NetworkSpeedUnit);
+                _rowCache[id] = row;
+                _rows.Children.Add(row);
+            }
+            keep.Add(id);
         }
+        // Drop cache entries for sensors no longer shown on this box.
+        foreach (string stale in _rowCache.Keys.Where(k => !keep.Contains(k)).ToList()) _rowCache.Remove(stale);
         SetAlert(anyAlert);
     }
 
@@ -995,13 +1012,32 @@ public sealed class ComponentBox : Border
         }
     }
 
-    internal sealed class SensorSlot { public string SensorId { get; set; } = ""; public DisplayMode Mode { get; set; } = DisplayMode.Bar; }
 }
-
-public enum DisplayMode { Bar, Graph, Value }
 
 public sealed class SensorRow : StackPanel
 {
+    // Cached references so a row can be updated in place on each 1-second refresh instead of being recreated.
+    private readonly string _id;
+    private readonly SensorDescriptor? _d;
+    private readonly TextBlock? _valueBlock;
+    private readonly Border? _barFill;
+    private readonly double _barInnerW;
+    private readonly bool _invertHeat;
+    private readonly double _graphH;
+    private Canvas? _graphCanvas;
+    private readonly List<Line> _graphLines = new();
+    private TextBlock? _awaitText;
+    private readonly string _keyArgs;
+
+    /// <summary>
+    /// Identity of a row's static layout (visibility of text/bar/graph, sizes). Rows whose key args match can be reused and updated in place.
+    /// </summary>
+    public string KeyArgs => _keyArgs;
+
+    /// <summary>Static identity key used to reuse a row across refreshes.</summary>
+    public static string KeyOf(bool showText, bool showBar, bool showGraph, double fontSize, double barHeight, double nameW, double valueW, double barWidth, double boxWidth)
+        => $"{showText}|{showBar}|{showGraph}|{fontSize:0}|{barHeight:0}|{nameW:0}|{valueW:0}|{barWidth:0}|{Math.Max(120, boxWidth - 16):0}";
+
     public SensorRow(string id, SensorDescriptor? d, double? value, SensorHistory? history, double boxWidth, double fontSize, double barHeight, bool showText, bool showBar, bool showGraph, double barWidth = 70, double nameW = 150, double valueW = 76, string networkSpeedUnit = "Auto")
     {
         // Per-sensor graph (when enabled) sits directly BELOW the sensor's text/bar row.
@@ -1011,6 +1047,10 @@ public sealed class SensorRow : StackPanel
         HorizontalAlignment = WpfHorizontalAlignment.Stretch;
         Margin = new Thickness(0, 0.5, 0, 0.5);
         double graphH = Math.Round(fontSize * 3);
+        _graphH = graphH;
+        _id = id;
+        _d = d;
+        _keyArgs = KeyOf(showText, showBar, showGraph, fontSize, barHeight, nameW, valueW, barWidth, boxWidth);
         var row = new Grid { Width = Math.Max(120, boxWidth - 16), HorizontalAlignment = WpfHorizontalAlignment.Stretch };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(nameW) });
         // Bar takes all remaining room between Name and right-aligned Value (Star). Star also pins Value right when Bar is hidden.
@@ -1034,48 +1074,123 @@ public sealed class SensorRow : StackPanel
             };
             Grid.SetColumn(valBlock, 2);
             row.Children.Add(valBlock);
+            _valueBlock = valBlock;
         }
 
         if (showBar)
         {
             var track = new Border { Background = ThemeService.Find("TrackBrush"), BorderBrush = ThemeService.Find("TrackBorderBrush"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(3), Height = barHeight, HorizontalAlignment = WpfHorizontalAlignment.Stretch, VerticalAlignment = WpfVerticalAlignment.Center };
-            double pct;
-            if (d is not null && !ScaleHelper.ShouldShowBar(d.Category) && history is not null && history.Values.Count >= 2)
-            {
-                var vals = history.Values.ToArray();
-                double max = Math.Max(d.Max, vals.Max());
-                double min = Math.Min(d.Min, vals.Min());
-                if (max <= min) max = min + 1;
-                pct = ScaleHelper.Normalize(value, min, max);
-            }
-            else
-            {
-                double pct2 = d is null ? 0 : ScaleHelper.Normalize(value, d.Min, Math.Max(d.Max, value ?? 0));
-                pct = pct2;
-            }
+            double pct = GetBarPercent(d, value, history);
             double fillW = pct * Math.Max(28, barWidth - 2);
             // "Life" (LHM Storage Smart.Life = % rated lifetime REMAINING, 100=new, 0=dead) — reverse heat so healthy=green, worn=red.
-            bool invertHeat = d is not null && (d.Name.Contains("Life", StringComparison.OrdinalIgnoreCase) || d.Name.Contains("Remaining", StringComparison.OrdinalIgnoreCase) || (d.ComponentType == ComponentType.Battery && d.Category.Equals("Level", StringComparison.OrdinalIgnoreCase)));
-            var filled = new Border { HorizontalAlignment = WpfHorizontalAlignment.Left, Width = Math.Max(28, barWidth - 2), Height = Math.Max(4, barHeight - 2), CornerRadius = new CornerRadius(3), Background = ThemeService.HeatBrush(invertHeat ? 1 - pct : pct), Opacity = 1 };
-            var clip = new Canvas { Width = Math.Max(28, barWidth - 2), Height = Math.Max(4, barHeight - 2), ClipToBounds = true };
-            filled.Width = Math.Max(28, barWidth - 2);
+            _invertHeat = d is not null && (d.Name.Contains("Life", StringComparison.OrdinalIgnoreCase) || d.Name.Contains("Remaining", StringComparison.OrdinalIgnoreCase) || (d.ComponentType == ComponentType.Battery && d.Category.Equals("Level", StringComparison.OrdinalIgnoreCase)));
+            _barInnerW = Math.Max(28, barWidth - 2);
+            var filled = new Border { HorizontalAlignment = WpfHorizontalAlignment.Left, Width = fillW, Height = Math.Max(4, barHeight - 2), CornerRadius = new CornerRadius(3), Background = ThemeService.HeatBrush(_invertHeat ? 1 - pct : pct), Opacity = 1 };
+            var clip = new Canvas { Width = _barInnerW, Height = Math.Max(4, barHeight - 2), ClipToBounds = true };
             clip.Children.Add(filled);
-            filled.Width = fillW;
-            filled.HorizontalAlignment = WpfHorizontalAlignment.Left;
             track.Child = clip;
             Grid.SetColumn(track, 1);
             row.Children.Add(track);
+            _barFill = filled;
         }
+
         if (showGraph)
         {
-            var graph = MakePerSensorGraph(d, history, graphH, Math.Max(120, boxWidth - 16));
+            var graph = BuildOrUpdateGraph(d, history, graphH, Math.Max(120, boxWidth - 16));
             Children.Add(graph);
         }
     }
 
-    private static Canvas MakePerSensorGraph(SensorDescriptor? d, SensorHistory? history, double graphH, double graphW)
+    private static double GetBarPercent(SensorDescriptor? d, double? value, SensorHistory? history)
+    {
+        if (d is not null && !ScaleHelper.ShouldShowBar(d.Category) && history is not null && history.Values.Count >= 2)
+        {
+            var vals = history.Values.ToArray();
+            double max = Math.Max(d.Max, vals.Max());
+            double min = Math.Min(d.Min, vals.Min());
+            if (max <= min) max = min + 1;
+            return ScaleHelper.Normalize(value, min, max);
+        }
+        return d is null ? 0 : ScaleHelper.Normalize(value, d.Min, Math.Max(d.Max, value ?? 0));
+    }
+
+    /// <summary>Update the dynamic value/bar/graph of this row in place (used by the 1-second refresh).</summary>
+    public void UpdateFrom(double? value, SensorHistory? history, string networkSpeedUnit)
+    {
+        if (_valueBlock is not null)
+            _valueBlock.Text = _d is null ? "—" : ScaleHelper.Format(value, _d, networkSpeedUnit);
+        if (_barFill is not null)
+        {
+            double pct = GetBarPercent(_d, value, history);
+            _barFill.Width = Math.Max(0.1, pct * _barInnerW);
+            _barFill.Background = ThemeService.HeatBrush(_invertHeat ? 1 - pct : pct);
+        }
+        if (_graphCanvas is not null)
+        {
+            BuildOrUpdateGraph(_d, history, _graphH, Math.Max(120, Width));
+        }
+    }
+
+    private Canvas BuildOrUpdateGraph(SensorDescriptor? d, SensorHistory? history, double graphH, double graphW)
     {
         graphW = Math.Max(120, graphW);
+        bool hadCanvas = _graphCanvas is not null;
+        if (!hadCanvas || Math.Abs(_graphCanvas!.Width - graphW) > 0.01 || Math.Abs(_graphCanvas.Height - graphH) > 0.01)
+        {
+            if (hadCanvas) Children.Remove(_graphCanvas!);
+            _graphCanvas = RebuildGraphCanvas(graphH, graphW);
+            if (hadCanvas) Children.Add(_graphCanvas!); // re-add only when replacing an attached canvas
+        }
+        var canvas = _graphCanvas!;
+        const int WindowSamples = 300;
+        if (d is null || history is null || history.Values.Count < 2)
+        {
+            if (_awaitText is not null) _awaitText.Visibility = Visibility.Visible;
+            if (_graphLines.Count > 0)
+            {
+                foreach (var l in _graphLines) canvas.Children.Remove(l);
+                _graphLines.Clear();
+            }
+            return canvas;
+        }
+        if (_awaitText is not null) _awaitText.Visibility = Visibility.Collapsed;
+        var vals = history.Values.ToArray();
+        int segCount = vals.Length - 1;
+        double max = Math.Max(d.Max, vals.Max());
+        double min = Math.Min(d.Min, vals.Min());
+        if (max <= min) max = min + 1;
+        double step = (graphW - 4) / (double)WindowSamples;
+        double x0 = graphW - 2 - step * vals.Length;
+        // Trim/extend the segment pool to match history length (no allocation in steady state).
+        while (_graphLines.Count > segCount)
+        {
+            var l = _graphLines[^1];
+            _graphLines.RemoveAt(_graphLines.Count - 1);
+            canvas.Children.Remove(l);
+        }
+        while (_graphLines.Count < segCount)
+        {
+            var l = new Line { StrokeThickness = 1.2 };
+            canvas.Children.Add(l);
+            _graphLines.Add(l);
+        }
+        for (int i = 0; i < segCount; i++)
+        {
+            var seg = _graphLines[i];
+            double x1 = x0 + i * step;
+            double y1 = graphH - 2 - ((vals[i] - min) / (max - min)) * (graphH - 4);
+            double x2 = x0 + (i + 1) * step;
+            double y2 = graphH - 2 - ((vals[i + 1] - min) / (max - min)) * (graphH - 4);
+            double pct1 = (vals[i] - min) / (max - min);
+            seg.X1 = x1; seg.Y1 = y1; seg.X2 = x2; seg.Y2 = y2;
+            seg.Stroke = ThemeService.HeatBrush(pct1);
+        }
+        return canvas;
+    }
+
+    private Canvas RebuildGraphCanvas(double graphH, double graphW)
+    {
+        _graphLines.Clear();
         var canvas = new Canvas { Height = graphH, Width = graphW, Background = ThemeService.Find("GraphBackgroundBrush"), HorizontalAlignment = WpfHorizontalAlignment.Stretch, Margin = new Thickness(0, 0.5, 0, 0) };
         // Gridlines (2 inner lines).
         var grid = ThemeService.Find("PatternDotBrush");
@@ -1085,39 +1200,10 @@ public sealed class SensorRow : StackPanel
             var gl = new Line { X1 = 2, Y1 = gy, X2 = Math.Max(20, graphW - 4), Y2 = gy, Stroke = grid, StrokeThickness = 0.5, Opacity = 0.35, StrokeDashArray = new DoubleCollection { 2, 3 } };
             canvas.Children.Add(gl);
         }
-        // Fixed 5-minute window: right-anchored fill — show only the most recent N samples in the right N/300 of the width.
-        const int WindowSamples = 300;
-        if (d is null || history is null || history.Values.Count < 2)
-        {
-            var awaiting = new TextBlock { Text = "—", FontSize = 9, Foreground = ThemeService.Find("TextMutedBrush"), Margin = new Thickness(6, 4, 0, 0) };
-            canvas.Children.Add(awaiting);
-            return canvas;
-        }
-        var vals = history.Values.ToArray();
-        double max = Math.Max(d.Max, vals.Max());
-        double min = Math.Min(d.Min, vals.Min());
-        if (max <= min) max = min + 1;
-        double step = (graphW - 4) / (double)WindowSamples;
-        double x0 = graphW - 2 - step * vals.Length;
-        for (int i = 0; i < vals.Length - 1; i++)
-        {
-            double x1 = x0 + i * step;
-            double y1 = graphH - 2 - ((vals[i] - min) / (max - min)) * (graphH - 4);
-            double x2 = x0 + (i + 1) * step;
-            double y2 = graphH - 2 - ((vals[i + 1] - min) / (max - min)) * (graphH - 4);
-            double pct1 = (vals[i] - min) / (max - min);
-            var seg = new Line { X1 = x1, Y1 = y1, X2 = x2, Y2 = y2, Stroke = ThemeService.HeatBrush(pct1), StrokeThickness = 1.2 };
-            canvas.Children.Add(seg);
-        }
+        _awaitText = new TextBlock { Text = "—", FontSize = 9, Foreground = ThemeService.Find("TextMutedBrush"), Margin = new Thickness(6, 4, 0, 0), Visibility = Visibility.Collapsed };
+        canvas.Children.Add(_awaitText);
         return canvas;
     }
-
-    private static Wpfbrush LoadBrush(double pct) => pct switch
-    {
-        < 0.5 => ThemeService.Find("BarOkayBrush"),
-        < 0.8 => ThemeService.Find("BarWarnBrush"),
-        _ => ThemeService.Find("BarHotBrush"),
-    };
 }
 
 public static class ProcessHelper

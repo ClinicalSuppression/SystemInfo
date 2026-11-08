@@ -1,6 +1,0 @@
-using System.Windows.Media;
-using WpfApplication = System.Windows.Application;
-
-namespace SystemInfo.StringsHint;
-
-public static class NoOp { }

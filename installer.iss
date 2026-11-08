@@ -9,7 +9,11 @@
 AppId={{7F2E1A4B-9C3D-4E5F-8A6B-2C3D4E5F6A7B}
 AppName=SystemInfo
 AppVersion=1.0
-AppPublisher=SystemInfo
+AppPublisher=ClinicalSuppression
+; --- Code Signing (uncomment when cert is available) ---
+; SignCommand="signtool sign /fd SHA256 /a /f cert.pfx /p password /t http://timestamp.digicert.com"
+; [Signing] section registers the command for use below
+; SignToolArgs is optional; use the [Signing] section instead for clarity.
 DefaultDirName={autopf}\SystemInfo
 DefaultGroupName=SystemInfo
 OutputDir=Output

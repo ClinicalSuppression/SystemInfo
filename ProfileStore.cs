@@ -10,6 +10,31 @@ public static class ProfileStore
     private static readonly string Dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SystemInfo", "profiles");
     private static readonly JsonSerializerOptions Opts = new() { WriteIndented = true };
 
+    /// <summary>Headless save (no dialog) for tests/CLI. Returns true on success.</summary>
+    public static bool TrySaveProfile(string path, WindowLayout layout)
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path) ?? Dir);
+            File.WriteAllText(path, JsonSerializer.Serialize(LayoutStore.Normalize(layout), Opts));
+            return true;
+        }
+        catch { return false; }
+    }
+
+    /// <summary>Headless load (no dialog) for tests/CLI. Returns null on failure.</summary>
+    public static WindowLayout? TryLoadProfile(string path)
+    {
+        try
+        {
+            if (!File.Exists(path)) return null;
+            var w = JsonSerializer.Deserialize<WindowLayout>(File.ReadAllText(path), Opts);
+            if (w is null) return null;
+            return LayoutStore.Normalize(w);
+        }
+        catch { return null; }
+    }
+
     public static void SaveProfile(Window owner, WindowLayout layout)
     {
         Directory.CreateDirectory(Dir);
