@@ -1,0 +1,15 @@
+.vs/
+.vscode/
+bin/
+obj/
+publish/
+artifacts/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.tmp
+SystemInfo_Setup_*.exe
+Output/
+TestResults/
+*.log
