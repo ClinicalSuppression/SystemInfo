@@ -85,6 +85,9 @@ namespace SystemInfo
         public bool StartWithWindows { get; set; } = false;
         public bool StartAsAdministrator { get; set; } = false;
         public int GraphMigrationVersion { get; set; } = 0; // 2 = main/header graphs removed, only per-sensor user graphs
+        public bool HideBackground { get; set; } = true;           // New: checked hide chrome on mouse-out (hover-hide), unchecked never hide chrome
+        public bool CheckForUpdatesOnStartup { get; set; } = false; // New: prompt on startup if newer release is available
+        public int TitlesMigrationVersion { get; set; } = 0;        // New: 1 = one-time title shortening (first run after upgrade), never rewrite user-renamed titles again
         public List<BoxLayout> Boxes { get; set; } = [];
     }
 
@@ -221,96 +224,41 @@ namespace SystemInfo
             return $"{value.Value.ToString(fmt)} {d.Unit}".Trim();
         }
 
-        /// <summary>Shorten a hardware name intelligently for box titles (keeps key info, hides generic fluff).</summary>
+        /// <summary>Shorten a hardware name intelligently for box titles (uses built-in model DB + heuristics).</summary>
         public static string ShortTitle(ComponentType type, string fullName, IReadOnlyList<SensorDescriptor>? sensorsForComponent = null)
         {
             if (string.IsNullOrWhiteSpace(fullName)) return fullName;
             string s = fullName.Trim();
-            // Memory: RAM + DDR speed (from LHM clock/data sensor if present, else WMI).
+
+            // RAM: snap to nearest standard DDR, but drop speed if we can't read it.
             if (type == ComponentType.Memory)
             {
-                string ddr = TryFindDdrSpeed(sensorsForComponent);
-                return string.IsNullOrWhiteSpace(ddr) ? "RAM" : $"RAM {ddr}";
+                string? mhz = DdrSpeedHelper.TryGetDdrTitlePart();
+                return mhz is null ? "RAM" : $"RAM{mhz}";
             }
-            // CPU-style AMD/Intel names: drop maker, keep model. e.g. "AMD Ryzen 7 5700G with Radeon Graphics" → "Ryzen 7 5700G".
-            // GPU-style: "AMD Radeon RX 7800 XT" / "NVIDIA GeForce RTX 4090" → "RX 7800 XT" / "RTX 4090".
-            if (type == ComponentType.Cpu || type == ComponentType.Gpu)
+
+            // CPU / GPU: use built-in model DB first (exact match), then heuristics.
+            // Heuristic only strips manufacturer prefixes; model tokens (Ryzen, Core i, RX, RTX, GTX, Xeon) are preserved.
+            if ((type == ComponentType.Cpu || type == ComponentType.Gpu) && CpuGpuModels.TryGetShort(fullName, out string mapped))
             {
-                // Tokens to drop (manufacturer fluff). Model tokens like Ryzen, RX, RTX, Xeon stay.
-                foreach (string drop in new[] { "Advanced Micro Devices", "AMD", "Intel", "NVIDIA", "Radeon", "GeForce", "Intel(R)", "(R)", "Graphics", "Processor", "Series" })
-                {
-                    // remove token and surrounding whitespace
-                    s = System.Text.RegularExpressions.Regex.Replace(s, @"(^|\s)" + System.Text.RegularExpressions.Regex.Escape(drop) + @"(\s|$)", " ", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-                }
-                // Drop "with Radeon Graphics" style suffix
-                int withIdx = s.IndexOf(" with ", StringComparison.OrdinalIgnoreCase);
-                if (withIdx >= 0) s = s[..withIdx].Trim();
-                // Collapse double spaces
-                s = System.Text.RegularExpressions.Regex.Replace(s, @"\s{2,}", " ").Trim();
-                // If nothing remains, fallback to original
-                if (string.IsNullOrWhiteSpace(s)) s = fullName;
-                return s.Trim();
+                return mapped;
             }
-            // Storage: model name as-is (LHM name is already the model).
+
+            string stripped = s;
+            stripped = System.Text.RegularExpressions.Regex.Replace(stripped, @"(?i)\b(advanced\s+micro\s+devices|amd|intel|nvidia|qualcomm|intel\(r\))\b", " ");
+            stripped = System.Text.RegularExpressions.Regex.Replace(stripped, @"(?i)\b(with\s+)?\b(graphics|processor|series)\b", " ");
+            stripped = System.Text.RegularExpressions.Regex.Replace(stripped, @"\s{2,}", " ").Trim();
+            if (!string.IsNullOrWhiteSpace(stripped)) s = stripped;
+
+            // Keep only the first 3 words for short titles (e.g. "Ryzen 7 5700G" from "Ryzen 7 5700G with Radeon Graphics").
+            var parts = s.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length > 3) s = string.Join(' ', parts[..3]);
             if (type == ComponentType.StorageHdd || type == ComponentType.StorageSsd || type == ComponentType.Storage)
             {
-                // Drop capacity suffix if present (rare) and collapse double spaces.
-                return System.Text.RegularExpressions.Regex.Replace(s, @"\s{2,}", " ").Trim();
+                // Storage scores already include capacity; keep more words.
+                if (parts.Length > 5) s = string.Join(' ', parts[..5]);
             }
-            // Network: drop generic Windows names and trailing index where harmless.
-            if (type == ComponentType.Network)
-            {
-                foreach (string drop in new[] { "Network Connection", "Ethernet adapter", "Adapter", "vEthernet" })
-                {
-                    s = s.Replace(drop, "", StringComparison.OrdinalIgnoreCase).Trim();
-                }
-                s = System.Text.RegularExpressions.Regex.Replace(s, @"\s{2,}", " ").Trim();
-                if (string.IsNullOrWhiteSpace(s) || s.Length < 2) s = fullName;
-                return s.Trim();
-            }
-            // Generic cleanup
-            foreach (string v in new[] { "Advanced Micro Devices", "AMD", "Intel", "NVIDIA", "Qualcomm" })
-            {
-                if (s.StartsWith(v + " ", StringComparison.OrdinalIgnoreCase)) s = s[(v.Length + 1)..].TrimStart();
-            }
-            int withIdx2 = s.IndexOf(" with ", StringComparison.OrdinalIgnoreCase);
-            if (withIdx2 >= 0) s = s[..withIdx2].Trim();
-            System.Text.RegularExpressions.Regex.Replace(s, @"\s{2,}", " ").Trim();
             return s.Trim();
-        }
-
-        private static string TryFindDdrSpeed(IReadOnlyList<SensorDescriptor>? sensorsForComponent)
-        {
-            if (sensorsForComponent is not null)
-            {
-                foreach (var d in sensorsForComponent)
-                {
-                    string n = (d.Name ?? "").ToLowerInvariant() + " " + d.Category.ToLowerInvariant();
-                    if (n.Contains("ddr") || n.Contains("memory clock") || n.Contains("ram clock"))
-                    {
-                        // LHM rarely exposes this; fall through to WMI below.
-                    }
-                }
-            }
-            try
-            {
-                var scope = new System.Management.ManagementScope(@"\\.\root\CIMV2");
-                scope.Connect();
-                var q = new System.Management.ObjectQuery("SELECT Speed FROM Win32_PhysicalMemory");
-                var searcher = new System.Management.ManagementObjectSearcher(scope, q);
-                var col = searcher.Get();
-                foreach (System.Management.ManagementObject mo in col)
-                {
-                    try
-                    {
-                        var spd = mo["Speed"]?.ToString();
-                        if (!string.IsNullOrWhiteSpace(spd)) return $"DDR {spd}";
-                    }
-                    catch { }
-                }
-            }
-            catch { }
-            return "";
         }
     }
 

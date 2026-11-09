@@ -21,6 +21,11 @@
     <None Remove="SystemInfo.Tests\**\*" />
   </ItemGroup>
   <ItemGroup>
+    <EmbeddedResource Include="cpu_gpu_models.json" LogicalName="SystemInfo.cpu_gpu_models.json" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="LibreHardwareMonitorLib" Version="0.9.6" />
+    <!-- match LibreHardwareMonitorLib dependency minimum -->
+    <PackageReference Include="System.Management" Version="10.0.2" />
   </ItemGroup>
 </Project>

@@ -23,19 +23,17 @@ public partial class MainWindow : Window
     private readonly List<ComponentBox> _boxControls = [];
     private TrayService? _tray;
     private HwndSource? _hwndSource;
-    private MenuItem? _hiddenSubmenu;
     private DispatcherTimer? _hoverTimer;
     private bool _chromeHidden;
+    private bool _firstRun;
 
     public MainWindow()
     {
         InitializeComponent();
         _layout = App.ProfileLayoutOverride ?? LayoutStore.LoadOrDefault();
+        _firstRun = App.ProfileLayoutOverride is null && !LayoutStore.ExistsOnDisk;
         try { ThemeService.Apply(_layout.ThemeScheme, ThemeService.ResolveEffectiveMode(_layout.ThemeMode)); } catch { ThemeService.Apply("Midnight", "Dark"); }
-        Width = _layout.Width;
-        Height = _layout.Height;
-        Left = _layout.Left;
-        Top = _layout.Top;
+        ApplyWindowBounds();
         Topmost = _layout.KeepOnTop;
         BuildContextMenu();
         RefreshThumb();
@@ -46,7 +44,6 @@ public partial class MainWindow : Window
             InitNativeResize();
             _collector = new UnifiedSensorCollector();
             _collector.Open(true);
-            LayoutStore.EnsureComponentBoxes(_layout, _collector.Components, _collector.Descriptors);
             RebuildBoxes();
             RefreshAll();
             var logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SystemInfo", "perf.log");
@@ -74,11 +71,21 @@ public partial class MainWindow : Window
             InitNativeResize();
             _collector = new UnifiedSensorCollector();
             _collector.Open(true);
-            LayoutStore.EnsureComponentBoxes(_layout, _collector.Components, _collector.Descriptors);
+            // First run (no layout on disk): create the stock 8-box layout from this machine's hardware.
+            if (_firstRun)
+            {
+                _firstRun = false;
+                var wa = SystemParameters.WorkArea;
+                _layout = LayoutStore.BuildStockDefault(_collector.Components, _collector.Descriptors,
+                    Math.Max(wa.Left, wa.Left + (wa.Width - 1079) / 2),
+                    Math.Max(wa.Top, wa.Top + (wa.Height - 586) / 2));
+                ApplyWindowBounds();
+                SaveLayout();
+            }
             RebuildBoxes();
             RefreshAll();
-            // Auto-fit on startup so contents are never clipped (user can manually adjust box widths afterward)
-            try { FitAllBoxes(); } catch { }
+            // Optional release check (opt-out by default)
+            try { if (_layout.CheckForUpdatesOnStartup) ReleaseChecker.CheckForUpdatesOnStartup(); } catch { }
             // Headless test harness: run fit/compact, write results, exit.
             if (App.RunTestAction is not null)
             {
@@ -128,12 +135,14 @@ public partial class MainWindow : Window
     private void BuildContextMenu()
     {
         var menu = new ContextMenu();
-        var miLockWin = new MenuItem { Header = "Lock window (move + resize)", IsCheckable = true, IsChecked = _layout.WindowLocked };
+        var miLockWin = new MenuItem { Header = "Lock window", IsCheckable = true, IsChecked = _layout.WindowLocked };
         miLockWin.Checked += (_, _) => { _layout.WindowLocked = true; SaveLayout(); };
         miLockWin.Unchecked += (_, _) => { _layout.WindowLocked = false; SaveLayout(); };
         var miKeepTop = new MenuItem { Header = "Keep on top", IsCheckable = true, IsChecked = _layout.KeepOnTop };
         miKeepTop.Click += (_, _) => { _layout.KeepOnTop = !_layout.KeepOnTop; Topmost = _layout.KeepOnTop; SaveLayout(); miKeepTop.IsChecked = _layout.KeepOnTop; };
-        var miLockBoxes = new MenuItem { Header = "Lock boxes (move + resize)", IsCheckable = true, IsChecked = _layout.BoxesLocked };
+        var miHideBackground = new MenuItem { Header = "Hide Background", IsCheckable = true, IsChecked = _layout.HideBackground };
+        miHideBackground.Click += (_, _) => { _layout.HideBackground = !_layout.HideBackground; SaveLayout(); ApplyHoverChrome(true); miHideBackground.IsChecked = _layout.HideBackground; };
+        var miLockBoxes = new MenuItem { Header = "Lock boxes", IsCheckable = true, IsChecked = _layout.BoxesLocked };
         miLockBoxes.Checked += (_, _) => { _layout.BoxesLocked = true; ApplyBoxLocks(); SaveLayout(); };
         miLockBoxes.Unchecked += (_, _) => { _layout.BoxesLocked = false; ApplyBoxLocks(); SaveLayout(); };
         var miFont = new MenuItem { Header = "Font size" };
@@ -251,9 +260,6 @@ public partial class MainWindow : Window
                 miTheme.Items.Add(mi);
             }
         }
-        var miHidden = new MenuItem { Header = "Show hidden boxes" };
-        _hiddenSubmenu = miHidden;
-        RefreshHiddenSubmenu(miHidden);
         var miProfiles = new MenuItem { Header = "Profiles" };
         var miLayout = new MenuItem { Header = "Layout" };
         var miFitBoxes = new MenuItem { Header = "Fit boxes (shrink to content, no clipping)" };
@@ -273,11 +279,18 @@ public partial class MainWindow : Window
         var miReset = new MenuItem { Header = "Reset to defaults" };
         miReset.Click += (_, _) =>
         {
-            if (MessageBox.Show("Delete current layout and regenerate defaults?", "Reset", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes)
+            if (MessageBox.Show("Replace the current layout with the stock layout (rebuilt for this machine)?", "Reset", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes)
             {
-                _layout.Boxes.Clear(); SaveLayout();
-                LayoutStore.EnsureComponentBoxes(_layout, _collector?.Components ?? [], _collector?.Descriptors ?? new Dictionary<string, SensorDescriptor>());
-                SaveLayout(); RebuildBoxes(); RefreshAll();
+                foreach (var b in _layout.Boxes.Where(b => b.CustomKind == "app").ToList())
+                {
+                    try { TerminalHost.Kill(b); } catch { }
+                }
+                var wa = SystemParameters.WorkArea;
+                _layout = LayoutStore.BuildStockDefault(_collector?.Components ?? [], _collector?.Descriptors ?? new Dictionary<string, SensorDescriptor>(),
+                    Math.Max(wa.Left, wa.Left + (wa.Width - 1079) / 2),
+                    Math.Max(wa.Top, wa.Top + (wa.Height - 586) / 2));
+                ApplyWindowBounds();
+                SaveLayout(); RebuildBoxes(); RefreshAll(); BuildContextMenu();
             }
         };
         miProfiles.Items.Add(miSaveProf);
@@ -291,6 +304,7 @@ public partial class MainWindow : Window
         miSaveState.Click += (_, _) => { SaveLayout(); ProfileStore.SaveProfile(this, _layout); };
         menu.Items.Add(miLockWin);
         menu.Items.Add(miKeepTop);
+        menu.Items.Add(miHideBackground);
         menu.Items.Add(miLockBoxes);
         menu.Items.Add(new Separator());
         menu.Items.Add(miTheme);
@@ -301,26 +315,10 @@ public partial class MainWindow : Window
         menu.Items.Add(miAdd);
         menu.Items.Add(miLayout);
         menu.Items.Add(miProfiles);
-        menu.Items.Add(miHidden);
         menu.Items.Add(miSaveState);
         menu.Items.Add(miLhm);
         menu.Items.Add(miSettings);
         ContextMenu = menu;
-    }
-
-    private void RefreshHiddenSubmenu(MenuItem? submenu = null)
-    {
-        var target = submenu ?? _hiddenSubmenu;
-        if (target is null) return;
-        target.Items.Clear();
-        foreach (var hidden in _layout.Boxes.Where(b => !b.Visible).ToList())
-        {
-            var h = hidden;
-            var mi = new MenuItem { Header = h.Title };
-            mi.Click += (_, _) => { h.Visible = true; SaveLayout(); RebuildBoxes(); RefreshHiddenSubmenu(target); };
-            target.Items.Add(mi);
-        }
-        target.IsEnabled = target.Items.Count > 0;
     }
 
     private void RefreshThumb()
@@ -387,6 +385,8 @@ public partial class MainWindow : Window
 
     private void UpdateHoverChrome()
     {
+        // "Hide Background" unchecked -> chrome always shown, hover timer does nothing.
+        if (!_layout.HideBackground) { if (_chromeHidden) ApplyHoverChrome(true); return; }
         bool inside = false;
         try
         {
@@ -521,6 +521,15 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>Applies the persisted window size/position to the window (used after stock/default layout creation).</summary>
+    private void ApplyWindowBounds()
+    {
+        Width = _layout.Width;
+        Height = _layout.Height;
+        Left = _layout.Left;
+        Top = _layout.Top;
+    }
+
     private void RebuildBoxes()
     {
         _boxControls.Clear();
@@ -539,7 +548,6 @@ public partial class MainWindow : Window
             ctrl.LayoutChanged += _ => { SaveLayout(); GrowCanvasToFit(); };
             ctrl.PickSensors += c => OpenPicker(c);
             ctrl.RemoveClicked += c => RemoveBox(c);
-            ctrl.HideBox += c => { c.Layout.Visible = false; SaveLayout(); RebuildBoxes(); RefreshHiddenSubmenu(); };
             BoardCanvas.Children.Add(ctrl);
             _boxControls.Add(ctrl);
         }

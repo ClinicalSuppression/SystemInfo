@@ -42,11 +42,11 @@ The tray menu also includes a "Run as Administrator" toggle — when enabled, th
 - **Per-core graphs:** By default, only aggregate sensors (Total/Max/Package) are shown. Per-core (`#0`, `#1`, …) sensors are excluded to avoid clutter. You can add per-core graphs via the Sensor Picker if desired.
 - **Graph rendering:** Graphs use a fixed 5-minute window (300 samples). Extreme outliers may compress the scale; this matches LibreHardwareMonitor's own behavior.
 - **Battery sensors:** Battery data may be unstable on some OEMs (Lenovo, Dell) — LHM-known issue, not SystemInfo.
-- **Single-instance guard:** Only one instance runs at a time. Launching a second instance exits silently (via `SingleInstance.Instance.Run()`).
+- **Single-instance guard:** Only one instance runs at a time. Launching a second instance shows a notice and exits.
 
 ## Use
 
-1. Launch `SystemInfo.exe` (or install via `Output\SystemInfo_Setup_1.0.exe`). One box per component appears stacked; scroll the window to reach lower boxes (e.g. network adapters).
+1. Launch `SystemInfo.exe` (or install via `Output\SystemInfo_Setup_1.0.exe`). On first run you get the stock layout (CPU, GPU, memory/storage, one network adapter, Top Processes and a PowerShell box) sized for the machine it runs on. Boxes are only ever added by you afterwards — via **+ Add** in the right-click menu.
 2. **Right-click** the window for window locks, Keep-on-top, and scaling. **Right-click is also how you keep the window on top or prevent it being moved.** `⚙` opens Display & scaling / locks.
 3. Inside a box, drag the header to move it (it snaps to neighbours with a 4px gap); drag the box's bottom-right thumb to resize.
 4. Click **`＋ Sensors`** on a box to pick exactly which of its LHM sensors to show and which to graph (with combined-graphs toggle per box).
@@ -109,7 +109,7 @@ AppName=SystemInfo
 | `ComponentLayout.cs` | `BoxLayout`/`WindowLayout`, `ScaleHelper` (5 independent scales, graph/bar heuristics), `SensorHistory`, sensor descriptors. |
 | `SensorCollector.cs` | LibreHardwareMonitor `Computer` collector (catalog per hardware instance, live `Collect()`). |
 | `SensorPickerWindow.xaml`, `.xaml.cs` | Per-box sensor picker (Show + Graph ticks, combined-graphs toggle, search). |
-| `LayoutStore.cs` | `layout.json` persistence (normalize, `.bak`, `EnsureComponentBoxes`). |
+| `LayoutStore.cs` | `layout.json` persistence (normalize, `.bak`, first-run stock layout, `BuildStockDefault`). |
 | `LayoutSettingsWindow.xaml`, `.xaml.cs` | Display & scaling + global locks dialog. |
 | `SystemInfoCollector.cs`, `SystemReport.cs`, `CliArgs.cs` | Full text/JSON report + CLI parser. |
 | `SystemInfo.Tests\` | Dependency-free checks (formatting, CLI, layout roundtrip/recovery, history). |

@@ -35,7 +35,6 @@ public sealed class ComponentBox : Border
     public event Action<ComponentBox>? PickSensors;
     public event Action<ComponentBox>? RemoveClicked;
     public event Action<ComponentBox>? LayoutChanged;
-    public event Action<ComponentBox>? HideBox;
 
     private static WpfSolidColorBrush B(string key) => ThemeService.Find(key);
     private static WpfSolidColorBrush GraphBrush(int idx) => ThemeService.Find($"GraphPalette{idx % 6}");
@@ -123,11 +122,8 @@ public sealed class ComponentBox : Border
         };
         var btnX = new WpfButton { Content = "✕", Background = WpfBrushes.Transparent, BorderThickness = new Thickness(0), Foreground = B("TextMutedBrush"), FontSize = 11, Cursor = WpfCursors.Hand };
         btnX.Click += (_, _) => RemoveClicked?.Invoke(this);
-        var btnEye = new WpfButton { Content = "👁", Background = WpfBrushes.Transparent, BorderThickness = new Thickness(0), Foreground = B("TextMutedBrush"), FontSize = 11, Cursor = WpfCursors.Hand, Margin = new Thickness(4, 0, 0, 0), ToolTip = "Hide box (restore via Show hidden boxes)" };
-        btnEye.Click += (_, _) => HideBox?.Invoke(this);
         var hdrPanel = new Grid();
         hdrPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        hdrPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         hdrPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         hdrPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         Grid.SetColumn(_titleText, 0);
@@ -137,10 +133,7 @@ public sealed class ComponentBox : Border
         Grid.SetColumn(btnPick, 1);
         Grid.SetRow(btnPick, 0);
         hdrPanel.Children.Add(btnPick);
-        Grid.SetColumn(btnEye, 2);
-        Grid.SetRow(btnEye, 0);
-        hdrPanel.Children.Add(btnEye);
-        Grid.SetColumn(btnX, 3);
+        Grid.SetColumn(btnX, 2);
         Grid.SetRow(btnX, 0);
         hdrPanel.Children.Add(btnX);
         header.Child = hdrPanel;
@@ -149,9 +142,7 @@ public sealed class ComponentBox : Border
         var boxMenu = new System.Windows.Controls.ContextMenu();
         var miCopy = new System.Windows.Controls.MenuItem { Header = "Copy box as image" };
         miCopy.Click += (_, _) => CopyAsImage();
-        var miHide = new System.Windows.Controls.MenuItem { Header = "Hide box" };
-        miHide.Click += (_, _) => HideBox?.Invoke(this);
-        boxMenu.Items.Add(miCopy); boxMenu.Items.Add(miHide);
+        boxMenu.Items.Add(miCopy);
         ContextMenu = boxMenu;
 
         header.MouseLeftButtonDown += Header_MouseLeftButtonDown;
@@ -597,22 +588,44 @@ public sealed class ComponentBox : Border
     private void OpenRenameDialog()
     {
         if (_locked) return;
-        var win = new Window { Title = "Rename box", Width = 340, Height = 140, WindowStartupLocation = WindowStartupLocation.CenterOwner, Owner = WpfApplication.Current?.MainWindow };
-        // Simple rename dialog
-        var tb = new System.Windows.Controls.TextBox { Text = Layout.Title, Margin = new Thickness(12), FontFamily = new WpfFontFamily("Segoe UI") };
-        var ok = new WpfButton { Content = "OK", Width = 80, Margin = new Thickness(12) };
-        var panel = new StackPanel { Margin = new Thickness(4) };
-        panel.Children.Add(new TextBlock { Text = "Box title:", FontFamily = new WpfFontFamily("Segoe UI"), Foreground = B("TextPrimaryBrush"), Margin = new Thickness(12, 10, 12, 4) });
-        panel.Children.Add(tb);
-        ok.Margin = new Thickness(12, 8, 12, 12);
-        panel.Children.Add(ok);
+        var win = new Window { Title = "Rename box", Width = 340, Height = 170, WindowStartupLocation = WindowStartupLocation.CenterOwner, Owner = WpfApplication.Current?.MainWindow, ResizeMode = ResizeMode.NoResize };
+        var tb = new System.Windows.Controls.TextBox { Text = Layout.Title, Margin = new Thickness(12, 4, 12, 4), FontFamily = new WpfFontFamily("Segoe UI"), HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch, VerticalAlignment = System.Windows.VerticalAlignment.Center };
+        var ok = new WpfButton { Content = "OK", Width = 80, Height = 30, Margin = new Thickness(0, 8, 12, 12), HorizontalAlignment = System.Windows.HorizontalAlignment.Right };
+        ok.IsDefault = true;
+        ok.IsCancel = false;
+        var panel = new Grid { Margin = new Thickness(4) };
+        panel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        panel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Auto) }); // label
+        panel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // textbox
+        panel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Auto) }); // ok
+        var label = new TextBlock { Text = "Box title (empty = auto):", FontFamily = new WpfFontFamily("Segoe UI"), Foreground = B("TextPrimaryBrush"), Margin = new Thickness(12, 8, 12, 2) };
+        Grid.SetRow(label, 0); panel.Children.Add(label);
+        tb.Margin = new Thickness(12, 0, 12, 0); tb.Padding = new Thickness(6, 4, 6, 4);
+        tb.Height = 30; tb.VerticalContentAlignment = System.Windows.VerticalAlignment.Center;
+        Grid.SetRow(tb, 1); panel.Children.Add(tb);
+        Grid.SetRow(ok, 2); panel.Children.Add(ok);
         win.Content = panel;
         win.Background = B("DialogBackgroundBrush");
-        ok.Click += (_, _) =>
+        tb.Focus();
+        void Apply()
         {
-            if (!string.IsNullOrWhiteSpace(tb.Text)) { Layout.Title = tb.Text.Trim(); _titleText.Text = Layout.Title; win.Close(); }
-        };
-        tb.KeyDown += (_, ke) => { if (ke.Key == Key.Enter) ok.RaiseEvent(new RoutedEventArgs(WpfButton.ClickEvent)); };
+            string value = tb.Text.Trim();
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                // empty: revert to auto-generated intelligent title
+                Layout.Title = ScaleHelper.ShortTitle(Layout.ComponentType, Layout.ComponentKey.Contains(':') ? Layout.ComponentKey.Substring(Layout.ComponentKey.IndexOf(':') + 1) : Layout.ComponentKey);
+                _titleText.Text = Layout.Title;
+                LayoutChanged?.Invoke(this);
+                win.Close();
+                return;
+            }
+            Layout.Title = value;
+            _titleText.Text = value;
+            LayoutChanged?.Invoke(this);
+            win.Close();
+        }
+        ok.Click += (_, _) => Apply();
+        tb.KeyDown += (_, ke) => { if (ke.Key == Key.Enter) Apply(); };
         win.ShowDialog();
     }
 

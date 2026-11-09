@@ -75,6 +75,12 @@ Check("unknown args ignored", !CliArgs.Parse(["--future-flag"]).HasExportAction 
 Console.WriteLine("SensorRange removed - gadget uses fixed sections + LHM catalog");
 Check("ReportFormatter still works", ReportFormatter.FormatBytes(1024) == "1.0 KB");
 
+Console.WriteLine("ReleaseChecker.IsNewer");
+Check("newer minor version", ReleaseChecker.IsNewer("1.1.0", "1.0.9"));
+Check("same version is not newer", !ReleaseChecker.IsNewer("1.0.0", "1.0.0"));
+Check("older version is not newer", !ReleaseChecker.IsNewer("0.9.9", "1.0.0"));
+Check("shorter tags treated as zero", !ReleaseChecker.IsNewer("1.0", "1.0.0") && ReleaseChecker.IsNewer("1.0.1", "1.0"));
+
 Console.WriteLine("LayoutStore");
 string tmpDir = Path.Combine(Path.GetTempPath(), "SI-LayoutTests-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(tmpDir);
@@ -115,7 +121,68 @@ finally
     try { Directory.Delete(tmpDir, recursive: true); } catch { }
 }
 
+Console.WriteLine("LayoutStore.BuildStockDefault (first run only)");
+var stockComps = new List<(string key, ComponentType type, string name)>
+{
+    ("Cpu|AMD Ryzen 7 5700G with Radeon Graphics", ComponentType.Cpu, "AMD Ryzen 7 5700G with Radeon Graphics"),
+    ("GpuAmd|AMD Radeon RX 7800 XT", ComponentType.Gpu, "AMD Radeon RX 7800 XT"),
+    ("Storage|Samsung SSD 970 EVO Plus 1TB", ComponentType.StorageSsd, "Samsung SSD 970 EVO Plus 1TB"),
+    ("Storage|ST2000DM008-2FR102", ComponentType.StorageHdd, "ST2000DM008-2FR102"),
+    ("Network|Ethernet", ComponentType.Network, "Ethernet"),
+    ("Network|Wi-Fi 2", ComponentType.Network, "Wi-Fi 2"),
+};
+var stockCatalog = new Dictionary<string, SensorDescriptor>();
+void AddStockSensor(string key, ComponentType type, string category, string name, string unit = "%")
+{
+    string id = $"lhm:{key}:{category}:{name}";
+    stockCatalog[id] = new SensorDescriptor { Id = id, ComponentKey = key, ComponentType = type, ComponentName = key, Category = category, Name = name, Unit = unit };
+}
+const string cpuKey = "Cpu|AMD Ryzen 7 5700G with Radeon Graphics";
+AddStockSensor(cpuKey, ComponentType.Cpu, "Load", "CPU Total");
+for (int i = 1; i <= 16; i++) AddStockSensor(cpuKey, ComponentType.Cpu, "Load", $"CPU Core #{i}");
+AddStockSensor(cpuKey, ComponentType.Cpu, "Temperature", "Core (Tctl/Tdie)", "°C");
+AddStockSensor(cpuKey, ComponentType.Cpu, "Power", "Package", "W");
+AddStockSensor(cpuKey, ComponentType.Cpu, "Voltage", "Core (SVI2 TFN)", "V");
+const string gpuKey = "GpuAmd|AMD Radeon RX 7800 XT";
+AddStockSensor(gpuKey, ComponentType.Gpu, "Load", "GPU Core");
+AddStockSensor(gpuKey, ComponentType.Gpu, "Temperature", "GPU Core", "°C");
+AddStockSensor(gpuKey, ComponentType.Gpu, "Power", "GPU Package", "W");
+AddStockSensor(gpuKey, ComponentType.Gpu, "Clock", "GPU Core", "MHz");
+AddStockSensor(gpuKey, ComponentType.Gpu, "Fan", "GPU Fan", "RPM");
+AddStockSensor(gpuKey, ComponentType.Gpu, "SmallData", "GPU Memory Used", "MB");
+AddStockSensor(gpuKey, ComponentType.Gpu, "SmallData", "GPU Memory Free", "MB");
+const string ssdKey = "Storage|Samsung SSD 970 EVO Plus 1TB";
+AddStockSensor(ssdKey, ComponentType.StorageSsd, "Load", "Total Activity");
+AddStockSensor(ssdKey, ComponentType.StorageSsd, "Temperature", "Composite Temperature", "°C");
+AddStockSensor(ssdKey, ComponentType.StorageSsd, "Load", "Used Space");
+AddStockSensor(ssdKey, ComponentType.StorageSsd, "Level", "Life");
+const string hddKey = "Storage|ST2000DM008-2FR102";
+AddStockSensor(hddKey, ComponentType.StorageHdd, "Load", "Total Activity");
+AddStockSensor(hddKey, ComponentType.StorageHdd, "Temperature", "Temperature", "°C");
+AddStockSensor(hddKey, ComponentType.StorageHdd, "Load", "Used Space");
+const string ethKey = "Network|Ethernet";
+AddStockSensor(ethKey, ComponentType.Network, "Throughput", "Download Speed", "B/s");
+AddStockSensor(ethKey, ComponentType.Network, "Throughput", "Upload Speed", "B/s");
+const string wifiKey = "Network|Wi-Fi 2";
+AddStockSensor(wifiKey, ComponentType.Network, "Throughput", "Download Speed", "B/s");
+
+var stock = LayoutStore.BuildStockDefault(stockComps, stockCatalog, 40, 40);
+var stockCpu = stock.Boxes.First(b => b.ComponentType == ComponentType.Cpu);
+Check("stock builds the 8-box reference arrangement", stock.Boxes.Count == 7); // CPU/GPU/net/proc/terminal + 2 storage
+Check("stock CPU title is shortened from the real CPU name", stockCpu.Title == "Ryzen 7 5700G");
+Check("stock CPU shows total + one row per physical core", stockCpu.SensorIds.Contains($"lhm:{cpuKey}:Load:CPU Total") && stockCpu.SensorIds.Contains($"lhm:{cpuKey}:Load:CPU Core #1") && !stockCpu.SensorIds.Contains($"lhm:{cpuKey}:Load:CPU Core #2"));
+Check("stock CPU sensors all belong to the CPU instance", stockCpu.SensorIds.All(id => stockCatalog[id].ComponentKey == cpuKey));
+Check("stock prefers wired Ethernet over Wi-Fi", stock.Boxes.Count(b => b.ComponentType == ComponentType.Network) == 1 && stock.Boxes.First(b => b.ComponentType == ComponentType.Network).Title == "Ethernet");
+Check("stock includes an embedded PowerShell terminal", stock.Boxes.Any(b => b.CustomKind == "app" && b.AppId == "powershell" && b.Title == "Windows PowerShell"));
+Check("stock includes Top Processes", stock.Boxes.Any(b => b.CustomKind == "processes" && b.Title == "Top Processes"));
+Check("stock does not overlap columns", stockCpu.X + stockCpu.Width <= stock.Boxes.First(b => b.ComponentType == ComponentType.Gpu).X);
+Check("stock window matches reference size", stock.Width >= 1079 && stock.Height >= 586);
+Check("stock boxes are all inside the window", stock.Boxes.All(b => b.X >= 0 && b.Y >= 0 && b.Y + b.Height <= stock.Height));
+Check("stock CPU total is graphed", stockCpu.SensorModes[$"lhm:{cpuKey}:Load:CPU Total"] is 5 or 4);
+Check("stock CPU core row is a bar", stockCpu.SensorModes[$"lhm:{cpuKey}:Load:CPU Core #1"] == 3);
+
 Console.WriteLine("SensorHistory");
+
 var h1 = new SensorHistory { Capacity = 10 };
 h1.Push(1.5); h1.Push(2.5);
 Check("history keeps pushed values", h1.Values.Count == 2);

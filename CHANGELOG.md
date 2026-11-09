@@ -39,6 +39,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **First-run stock layout:** When no `layout.json` exists, SystemInfo builds the reference 8-box arrangement (CPU, GPU, storage, one wired network adapter, Top Processes, embedded PowerShell) from the hardware actually detected on that machine — titles, sensor sets and modes adapt to the hardware, nothing is hard-coded to the developer's PC.
+- **`Reset to defaults`** now rebuilds that same stock layout for the current machine instead of stacking every detected component.
+
+### Changed
+- **Boxes are never created automatically:** After the first run, boxes exist only when the user adds them (`+ Add`). Startup no longer injects a box per detected component.
+- **Manual box sizes persist:** Startup no longer force-fits every box; `Fit boxes` / `Compact window` remain explicit menu actions.
+- **Update check:** Optional GitHub release check on startup (off by default, Settings only).
+
+### Fixed
+- **Title shortening:** CPU/GPU titles now use the built-in model list and manufacturer-only heuristics; storage/network titles are shortened without dropping the model; RAM titles include the normalized DDR speed (`RAM 2400Mhz`).
+- **Rename dialog:** OK is no longer clipped and an empty name resets the box to its automatic title.
+- **Box hiding removed:** The eye button, `Show hidden boxes` menu and `Visible`-based hide paths are gone; use `Hide Background` for chrome-only hover hiding.
+
+
 ### Planned
 - **GitHub Actions CI:** Auto-publish release on tag push
 - **Code signing:** Installer signed with certificate

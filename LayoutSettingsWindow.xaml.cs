@@ -30,6 +30,8 @@ public partial class LayoutSettingsWindow : Window
         TopMostCheck.IsChecked = current.KeepOnTop;
         WindowLockedCheck.IsChecked = current.WindowLocked;
         BoxesLockedCheck.IsChecked = current.BoxesLocked;
+        HideBackgroundCheck.IsChecked = current.HideBackground;
+        UpdatesCheck.IsChecked = current.CheckForUpdatesOnStartup;
     }
 
     private void OkButton_Click(object sender, RoutedEventArgs e)
@@ -47,6 +49,8 @@ public partial class LayoutSettingsWindow : Window
         Result.KeepOnTop = TopMostCheck.IsChecked == true;
         Result.WindowLocked = WindowLockedCheck.IsChecked == true;
         Result.BoxesLocked = BoxesLockedCheck.IsChecked == true;
+        Result.HideBackground = HideBackgroundCheck.IsChecked == true;
+        Result.CheckForUpdatesOnStartup = UpdatesCheck.IsChecked == true;
         DialogResult = true;
         Close();
     }

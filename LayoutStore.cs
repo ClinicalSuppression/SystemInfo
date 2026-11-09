@@ -17,6 +17,9 @@ public static class LayoutStore
     }
     public static string BackupFilePath => LayoutFilePath + ".bak";
 
+    /// <summary>True when a saved layout (or its backup) exists. Used to decide whether this is a first run.</summary>
+    public static bool ExistsOnDisk => File.Exists(LayoutFilePath) || File.Exists(BackupFilePath);
+
     public static WindowLayout LoadOrDefault()
     {
         string path = LayoutFilePath;
@@ -194,170 +197,267 @@ public static class LayoutStore
             if (!AppHelper.IsAllowedAppId(b.AppId)) b.AppId = "cmd";
         }
         w.GraphMigrationVersion = 2;
-        // Intelligently shorten brand-inherited titles on load (does NOT touch user-renamed titles: only shorten if title contains manufacturer tokens).
-        bool IsBrand(string t) => t.Contains("Advanced Micro Devices", StringComparison.OrdinalIgnoreCase) || t.Contains("AMD ", StringComparison.OrdinalIgnoreCase) || t.Contains("Intel", StringComparison.OrdinalIgnoreCase) || t.Contains("NVIDIA", StringComparison.OrdinalIgnoreCase) || t.Contains("Radeon", StringComparison.OrdinalIgnoreCase) || t.Contains("GeForce", StringComparison.OrdinalIgnoreCase) || t.Contains("with Radeon", StringComparison.OrdinalIgnoreCase) || t.Contains("with GeForce", StringComparison.OrdinalIgnoreCase) || t.Contains(" Qualcomm ", StringComparison.OrdinalIgnoreCase);
+        // Normalize: one-time title migration. Runs ONLY when TitlesMigrationVersion < 1.
+        if (w.TitlesMigrationVersion < 1)
+        {
+            foreach (var b in w.Boxes)
+            {
+                if (!string.IsNullOrWhiteSpace(b.Title))
+                    b.Title = ScaleHelper.ShortTitle(b.ComponentType, b.Title);
+            }
+            w.TitlesMigrationVersion = 1;
+        }
+        // Clamp width so the title is always readable (except for App/Terminal boxes, which the user owns).
         foreach (var b in w.Boxes)
         {
-            if (!string.IsNullOrWhiteSpace(b.Title) && IsBrand(b.Title))
-                b.Title = ScaleHelper.ShortTitle(b.ComponentType, b.Title);
+            if (b.CustomKind == "app") continue;
+            b.Width = Math.Max(b.Width, TitleWidthFor(b.Title));
         }
         return w;
     }
 
-    /// <summary>Creates one box per component instance. Very limited: only the most useful sensors per component.</summary>
-    public static void EnsureComponentBoxes(WindowLayout layout, IReadOnlyList<(string key, ComponentType type, string name)> components, IReadOnlyDictionary<string, SensorDescriptor> catalog)
-    {
-        foreach (var (key, type, name) in components)
-        {
-            if (layout.Boxes.Any(b => b.ComponentKey == key)) continue;
-            var sensors = catalog.Values.Where(d => d.ComponentKey == key).ToList();
-            if (sensors.Count == 0) continue;
-            var chosen = PickUsefulDefaults(type, sensors);
-            if (chosen.Count == 0)
-            {
-                // Fallback: at most 3 best-scoring sensors (never per-core bursts).
-                chosen = sensors
-                    .OrderByDescending(d => UsefulnessScore(d))
-                    .Take(3)
-                    .ToList();
-            }
-            var graph = PickDefaultGraphs(type, chosen);
-            var modes = new Dictionary<string, int>(StringComparer.Ordinal);
-            foreach (var d in chosen) modes[d.Id] = ScaleHelper.DefaultMode(d, graph.Contains(d.Id));
-            int idx = layout.Boxes.Count;
-            layout.Boxes.Add(new BoxLayout
-            {
-                ComponentKey = key, ComponentType = type, Title = ScaleHelper.ShortTitle(type, name, sensors),
-                X = 8, Y = 8 + idx * 224, Width = 320, Height = 210, Visible = true,
-                SensorIds = chosen.Select(d => d.Id).ToList(),
-                GraphSensorIds = graph,
-                SensorModes = modes,
-                CombineGraphs = true, Locked = false,
-            });
-        }
-    }
+    /// <summary>Minimum width that shows a box title in full (text + header padding and buttons).</summary>
+    private static double TitleWidthFor(string? title)
+        => Math.Min(500, Math.Ceiling(ScaleHelper.MeasureTextWidth(
+            string.IsNullOrWhiteSpace(title) ? "x" : title, 12, semibold: true) + 8 /*pad*/ + 58 /*gear*/ + 30 /*eye*/ + 30 /*close*/));
 
     /// <summary>
-    /// Pick a very limited useful set. Prefers aggregate sensors (Total/Max/Package/Core) over per-core (#n) ones.
-    /// CPU: All-Cores Load + Package Temp + Package Power + one Voltage. GPU: Core Load + Core Temp + Package Power
-    /// + Core Clock + Fan + GPU-Memory Used/Total + one Voltage. Memory: Load + Used + Available. Network: Utilization
-    /// + Download/Upload Speed. Others: Load + Temp + Power aggregates.
+    /// The stock layout used only on first run (no layout on disk yet) or after "Reset to defaults".
+    /// It mirrors the reference 8-box arrangement, but every title/sensor is derived from the machine it runs on.
+    /// New boxes are never added automatically after that — only the user adds boxes.
     /// </summary>
-    private static List<SensorDescriptor> PickUsefulDefaults(ComponentType type, List<SensorDescriptor> sensors)
+    public static WindowLayout BuildStockDefault(
+        IReadOnlyList<(string key, ComponentType type, string name)> components,
+        IReadOnlyDictionary<string, SensorDescriptor> catalog,
+        double left, double top)
+    {
+        var w = new WindowLayout
+        {
+            Left = left, Top = top, Width = 1079, Height = 586,
+            ThemeMode = "Dark", ThemeScheme = "Midnight",
+            FontScale = 2, BarScale = 2, GraphScale = 2,
+            HideBackground = true, CheckForUpdatesOnStartup = false,
+            GraphMigrationVersion = 2, TitlesMigrationVersion = 1,
+        };
+
+        BoxLayout? MakeComponent((string key, ComponentType type, string name) comp, double y, double width, double height)
+        {
+            var sensors = catalog.Values.Where(d => d.ComponentKey == comp.key).ToList();
+            if (sensors.Count == 0) return null;
+            var chosen = PickStockSensors(comp.type, sensors);
+            if (chosen.Count == 0) return null;
+            var modes = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var d in chosen) modes[d.Id] = StockModeFor(d);
+            return new BoxLayout
+            {
+                ComponentKey = comp.key,
+                ComponentType = comp.type,
+                Title = ScaleHelper.ShortTitle(comp.type, comp.name, sensors),
+                Y = y, Width = width, Height = height,
+                SensorIds = chosen.Select(d => d.Id).ToList(),
+                SensorModes = modes,
+                GraphSensorIds = chosen.Where(d => ScaleHelper.ModeHasGraph(modes[d.Id])).Select(d => d.Id).ToList(),
+                CombineGraphs = true,
+            };
+        }
+
+        var col1 = new List<BoxLayout>();
+        var col2 = new List<BoxLayout>();
+        var col3 = new List<BoxLayout>();
+        var col4 = new List<BoxLayout>();
+        void AddIf(List<BoxLayout> col, BoxLayout? b) { if (b is not null) col.Add(b); }
+
+        // Column 1: CPU on top, one network adapter underneath.
+        var cpu = components.FirstOrDefault(c => c.type == ComponentType.Cpu);
+        if (cpu.key is not null) AddIf(col1, MakeComponent(cpu, 8, 201, 358));
+
+        int NetScore((string key, ComponentType type, string name) c)
+        {
+            string n = c.name.ToLowerInvariant();
+            if (n.Contains("ethernet")) return 3;
+            if (n.Contains("wi-fi") || n.Contains("wifi") || n.Contains("wireless") || n.Contains("wlan")) return 2;
+            if (n.Contains("virtual") || n.Contains("vpn") || n.Contains("tun") || n.Contains("loopback")) return 0;
+            return 1;
+        }
+        var net = components.Where(c => c.type == ComponentType.Network)
+                            .OrderByDescending(NetScore).ThenBy(c => c.name)
+                            .FirstOrDefault();
+        if (net.key is not null) AddIf(col1, MakeComponent(net, 370, 201, 140));
+
+        // Column 2: GPU.
+        var gpu = components.FirstOrDefault(c => c.type == ComponentType.Gpu);
+        if (gpu.key is not null) AddIf(col2, MakeComponent(gpu, 8, 223, 506));
+
+        // Column 3: Top Processes, then up to three storage devices.
+        var proc = CreateProcessesBox(8);
+        proc.Width = 230; proc.Height = 146; proc.ProcessLimit = 5;
+        col3.Add(proc);
+        var storageWidths = new double[] { 230, 276, 266 };
+        var storage = components
+            .Where(c => c.type is ComponentType.StorageSsd or ComponentType.StorageHdd or ComponentType.Storage)
+            .Where(c => catalog.Values.Any(d => d.ComponentKey == c.key))
+            .Take(3)
+            .ToList();
+        for (int i = 0; i < storage.Count; i++)
+            AddIf(col3, MakeComponent(storage[i], 158 + i * 123, storageWidths[i], 119));
+
+        // Column 4: embedded terminal.
+        var term = CreateAppBox(8, "powershell");
+        term.Title = AppHelper.DisplayName("powershell");
+        term.Width = 389; term.Height = 269;
+        col4.Add(term);
+
+        // Position columns left-to-right, widening a column when a title needs more room.
+        var columns = new[] { col1, col2, col3, col4 };
+        double x = 8, bottom = 0;
+        foreach (var col in columns)
+        {
+            if (col.Count == 0) continue;
+            double colW = col.Max(b => Math.Max(b.Width, TitleWidthFor(b.Title)));
+            foreach (var b in col)
+            {
+                b.X = x;
+                b.Width = Math.Max(b.Width, TitleWidthFor(b.Title));
+                w.Boxes.Add(b);
+                bottom = Math.Max(bottom, b.Y + b.Height);
+            }
+            x += colW + 4;
+        }
+        w.Width = Math.Max(1079, Math.Ceiling(x + 4));
+        w.Height = Math.Max(586, Math.Ceiling(bottom + 8));
+        return Normalize(w);
+    }
+
+    /// <summary>Sensor set that mirrors the stock boxes (CPU total + alternated cores; GPU load/temp/mem; etc.).</summary>
+    private static List<SensorDescriptor> PickStockSensors(ComponentType type, List<SensorDescriptor> sensors)
     {
         List<SensorDescriptor> chosen = [];
-        void AddBest(string category, Func<SensorDescriptor, int> score, bool requireAggregate = false)
+        void Add(SensorDescriptor? d) { if (d is not null && !chosen.Contains(d)) chosen.Add(d); }
+        SensorDescriptor? Exact(string category, params string[] names)
         {
-            var cands = sensors.Where(d => d.Category.ToLowerInvariant() == category).ToList();
-            if (requireAggregate)
-                cands = cands.Where(d => !d.Name.Contains('#')).ToList();
-            if (cands.Count == 0) return;
-            var best = cands.OrderByDescending(d => score(d)).ThenBy(d => d.Name).FirstOrDefault();
-            if (best is not null && !chosen.Contains(best)) chosen.Add(best);
+            foreach (string n in names)
+            {
+                var hit = sensors.FirstOrDefault(d => d.Category.Equals(category, StringComparison.OrdinalIgnoreCase)
+                                                   && d.Name.Equals(n, StringComparison.OrdinalIgnoreCase));
+                if (hit is not null) return hit;
+            }
+            return null;
         }
-        int Score(string d, params string[] keys)
-        {
-            string n = d.ToLowerInvariant();
-            int s = 0;
-            if (n.Contains("total")) s += 100;
-            if (n.Contains("max")) s += 90;
-            if (n.Contains("package")) s += 80;
-            if (n.Contains("tctl") || n.Contains("tdie")) s += 85;
-            if (n.Contains("hot spot")) s += 70;
-            if (n.Contains("gpu core")) s += 95;
-            if (n.Contains("cpu total")) s += 95;
-            if (n.Contains("average")) s += 60;
-            if (n.Contains("effective")) s += 95;
-            if (n.Contains("pdh")) s += 55;
-            if (n.Contains('#')) s -= 50;
-            return s;
-        }
+        SensorDescriptor? FirstAggregate(string category)
+            => sensors.FirstOrDefault(d => d.Category.Equals(category, StringComparison.OrdinalIgnoreCase) && !d.Name.Contains('#'));
+        bool HasCategory(string category) => chosen.Any(d => d.Category.Equals(category, StringComparison.OrdinalIgnoreCase));
 
         switch (type)
         {
             case ComponentType.Cpu:
-                AddBest("load", d => Score(d.Name)); // -> CPU Total
-                // LHM aggregates that the picker must show: Cores (Average)/Max, Effective clock.
-                foreach (var n in new[] { "Cores (Average)", "Cores (Max)", "CPU Core Max", "CPU Total" })
+                Add(Exact("Load", "CPU Total") ?? FirstAggregate("Load"));
+                // Show one bar per physical core: LHM lists logical threads, so take every second core.
+                var cores = sensors
+                    .Where(d => d.Category.Equals("Load", StringComparison.OrdinalIgnoreCase)
+                             && d.Name.StartsWith("CPU Core #", StringComparison.OrdinalIgnoreCase))
+                    .Select(d => (d, n: CoreNumber(d.Name)))
+                    .Where(x => x.n > 0)
+                    .OrderBy(x => x.n)
+                    .Select(x => x.d)
+                    .ToList();
+                int shown = 0;
+                foreach (var core in cores)
                 {
-                    var sd = sensors.FirstOrDefault(d => d.Name.Equals(n, StringComparison.OrdinalIgnoreCase));
-                    if (sd is not null && !chosen.Contains(sd)) chosen.Add(sd);
+                    if (shown >= 8) break;
+                    if (CoreNumber(core.Name) % 2 == 0) continue;
+                    Add(core);
+                    shown++;
                 }
-                AddBest("temperature", d => Score(d.Name)); // -> Core (Tctl/Tdie)
-                AddBest("power", d => Score(d.Name)); // -> Package
-                AddBest("voltage", d => d.Name.Contains("core ") && d.Name.Contains("svi2") || d.Name.Contains("core") ? 80 : 0, requireAggregate: true);
-                // Effective/Average clocks (may be NaN without Ring0 — still listed, shown as —).
-                var clockAgg = sensors.Where(d => (d.Category.Equals("Clock", StringComparison.OrdinalIgnoreCase) || d.Category.Equals("Frequency", StringComparison.OrdinalIgnoreCase)) && !d.Name.Contains('#') && !chosen.Contains(d)).OrderByDescending(d => Score(d.Name) + (d.Name.ToLowerInvariant().Contains("effective") ? 90 : 0) + (d.Name.ToLowerInvariant().Contains("average") ? 80 : 0)).ToList();
-                foreach (var d in clockAgg) if (!chosen.Contains(d)) chosen.Add(d);
+                Add(Exact("Temperature", "Core (Tctl/Tdie)", "Core (Tctl)", "CPU Package", "Core Average", "Core Max")
+                    ?? FirstAggregate("Temperature"));
+                Add(Exact("Power", "Package", "CPU Package", "Package Power") ?? FirstAggregate("Power"));
+                foreach (var v in sensors
+                    .Where(d => d.Category.Equals("Voltage", StringComparison.OrdinalIgnoreCase) && !d.Name.Contains('#'))
+                    .OrderByDescending(d => d.Name.Contains("SVI2 TFN", StringComparison.OrdinalIgnoreCase))
+                    .ThenByDescending(d => d.Name.Contains("Core", StringComparison.OrdinalIgnoreCase))
+                    .Take(2))
+                    Add(v);
                 break;
+
             case ComponentType.Gpu:
-                AddBest("load", d => Score(d.Name)); // -> GPU Core
-                AddBest("temperature", d => Score(d.Name)); // -> GPU Core
-                AddBest("power", d => Score(d.Name)); // -> GPU Package
-                AddBest("clock", d => Score(d.Name), requireAggregate: true); // -> GPU Core Clock
-                AddBest("fan", d => 100);
-                AddBest("voltage", d => Score(d.Name), requireAggregate: true);
-                foreach (var n in new[] { "GPU Memory Used", "GPU Memory Total" })
-                {
-                    var sd = sensors.FirstOrDefault(d => d.Name.Equals(n, StringComparison.OrdinalIgnoreCase));
-                    if (sd is not null && !chosen.Contains(sd)) chosen.Add(sd);
-                }
+                Add(Exact("Load", "D3D 3D"));
+                Add(Exact("Load", "D3D Compute 0"));
+                Add(Exact("Load", "GPU Core"));
+                if (!HasCategory("Load")) Add(FirstAggregate("Load"));
+                Add(Exact("Temperature", "GPU Core"));
+                Add(Exact("Temperature", "GPU Hot Spot"));
+                Add(Exact("Temperature", "GPU Memory"));
+                if (!HasCategory("Temperature")) Add(FirstAggregate("Temperature"));
+                Add(Exact("Power", "GPU Package") ?? FirstAggregate("Power"));
+                Add(Exact("Clock", "GPU Core") ?? FirstAggregate("Clock"));
+                Add(Exact("Clock", "GPU Memory"));
+                Add(Exact("Fan", "GPU Fan") ?? FirstAggregate("Fan"));
+                Add(Exact("SmallData", "GPU Memory Used", "GPU Memory Total"));
+                Add(Exact("SmallData", "GPU Memory Free"));
                 break;
+
             case ComponentType.Memory:
-                AddBest("load", d => d.Name.Equals("Memory", StringComparison.OrdinalIgnoreCase) ? 100 : 0);
-                foreach (var n in new[] { "Memory Used", "Memory Available" })
-                {
-                    var sd = sensors.FirstOrDefault(d => d.Name.Equals(n, StringComparison.OrdinalIgnoreCase));
-                    if (sd is not null && !chosen.Contains(sd)) chosen.Add(sd);
-                }
+                Add(Exact("Load", "Memory") ?? FirstAggregate("Load"));
+                Add(Exact("Data", "Memory Used", "Used Memory"));
+                Add(Exact("Data", "Memory Available", "Available Memory"));
                 break;
+
             case ComponentType.Network:
-                AddBest("load", d => 100); // Network Utilization (only load)
-                foreach (var n in new[] { "Download Speed", "Upload Speed" })
-                {
-                    var sd = sensors.FirstOrDefault(d => d.Name.Equals(n, StringComparison.OrdinalIgnoreCase));
-                    if (sd is not null && !chosen.Contains(sd)) chosen.Add(sd);
-                }
+                Add(Exact("Throughput", "Download Speed"));
+                Add(Exact("Throughput", "Upload Speed"));
+                if (chosen.Count == 0) Add(FirstAggregate("Load"));
+                if (chosen.Count == 0) Add(FirstAggregate("Throughput"));
                 break;
+
             case ComponentType.Storage:
             case ComponentType.StorageHdd:
             case ComponentType.StorageSsd:
-                AddBest("load", d => Score(d.Name));
-                AddBest("temperature", d => Score(d.Name));
-                AddBest("power", d => Score(d.Name));
+                Add(Exact("Load", "Total Activity", "Activity") ?? FirstAggregate("Load"));
+                Add(Exact("Temperature", "Composite Temperature", "Temperature") ?? FirstAggregate("Temperature"));
+                Add(Exact("Load", "Used Space"));
+                Add(Exact("Level", "Life", "Remaining Life") ?? FirstAggregate("Level"));
                 break;
+
             default:
-                AddBest("load", d => Score(d.Name));
-                AddBest("temperature", d => Score(d.Name));
-                AddBest("power", d => Score(d.Name));
-                AddBest("clock", d => Score(d.Name), requireAggregate: true);
+                Add(FirstAggregate("Load"));
+                Add(FirstAggregate("Temperature"));
+                Add(FirstAggregate("Power"));
+                Add(FirstAggregate("Clock"));
                 break;
         }
         return chosen;
     }
 
-    private static int UsefulnessScore(SensorDescriptor d)
+    /// <summary>Per-row display mode that matches the stock look (bars, graphs, or plain text).</summary>
+    private static int StockModeFor(SensorDescriptor d)
     {
-        string n = d.Name.ToLowerInvariant();
-        int s = 0;
-        if (n.Contains("total")) s += 100;
-        if (n.Contains("max")) s += 90;
-        if (n.Contains("package")) s += 80;
-        if (SurfaceCategoryWeight(d.Category) == 0) s -= 20;
-        if (n.Contains('#')) s -= 50;
-        return s;
+        int text = (int)RowMode.Text;
+        string name = d.Name.ToLowerInvariant();
+        string cat = d.Category.ToLowerInvariant();
+        switch (d.ComponentType)
+        {
+            case ComponentType.Cpu:
+                if (cat == "load" && name.Contains("core")) return text | (int)RowMode.Bar;
+                if (cat is "temperature" or "power") return text | (int)RowMode.Bar | (int)RowMode.Graph;
+                if (cat == "load") return text | (int)RowMode.Graph;
+                return text | (int)RowMode.Bar;
+            case ComponentType.Gpu:
+                if (cat is "load" or "temperature" or "fan") return text | (int)RowMode.Graph;
+                if (cat == "smalldata") return name.Contains("free") ? text | (int)RowMode.Bar : text | (int)RowMode.Graph;
+                if (cat is "clock" or "power") return text;
+                return ScaleHelper.DefaultMode(d, false);
+            case ComponentType.Network:
+                return name.Contains("download") ? text | (int)RowMode.Graph : text | (int)RowMode.Bar | (int)RowMode.Graph;
+            default:
+                return text | (int)RowMode.Bar;
+        }
     }
 
-    private static int SurfaceCategoryWeight(string category) => category.ToLowerInvariant() switch
+    /// <summary>Extracts the trailing number from names like "CPU Core #7".</summary>
+    private static int CoreNumber(string name)
     {
-        "load" or "temperature" or "power" or "clock" or "throughput" or "data" or "smalldata" => 10,
-        _ => 0,
-    };
-
-    private static List<string> PickDefaultGraphs(ComponentType type, List<SensorDescriptor> chosen)
-    {
-        // No default graphs: only show graphs the user explicitly enables.
-        return [];
+        int hash = name.LastIndexOf('#');
+        return hash >= 0 && int.TryParse(name[(hash + 1)..], out int n) ? n : 0;
     }
 
     public static BoxLayout CreateProcessesBox(double y)
