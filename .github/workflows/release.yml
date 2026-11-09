@@ -1,25 +1,28 @@
-name: Build, Test, and Release
+name: Build, Test, and Publish
+
+# Tag-push CI only: verifies the tag builds, tests pass, and the portable
+# framework-dependent x64 app publishes. Uploads an artifact for inspection.
+# Releases are cut manually via the gh CLI (file naming, installer, notes).
 
 on:
   push:
     tags:
-      - "v*.*.*"  # Triggers on semantic version tags (e.g., v1.0.0)
-  workflow_dispatch:  # Allows manual trigger from GitHub UI
+      - 'v*.*.*'
+  workflow_dispatch:
 
 env:
-  DOTNET_VERSION: "8.0.x"
-  PROJECT_NAME: "SystemInfo"
-  TEST_PROJECT: "SystemInfo.Tests\SystemInfo.Tests.csproj"
-  SOLUTION_FILE: "SystemInfo.slnx"
+  DOTNET_VERSION: '8.0.x'
+  PROJECT_NAME: SystemInfo
+  TEST_PROJECT: SystemInfo.Tests/SystemInfo.Tests.csproj
+  SOLUTION_FILE: SystemInfo.slnx
 
 jobs:
-  build-and-test:
-    name: Build & Test
+  build-test-publish:
+    name: Build, Test, Publish
     runs-on: windows-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -33,45 +36,14 @@ jobs:
         run: dotnet build ${{ env.SOLUTION_FILE }} -c Release -warnaserror
 
       - name: Run tests
-        run: dotnet test ${{ env.TEST_PROJECT }} -c Release --no-build --verbosity normal
+        run: dotnet run --project ${{ env.TEST_PROJECT }} -c Release --no-build
 
       - name: Publish executable (framework-dependent)
-        run: |
-          dotnet publish ${{ env.PROJECT_NAME }}.csproj -c Release -r win-x64 --self-contained false -o publish-win-x64
+        run: dotnet publish ${{ env.PROJECT_NAME }}.csproj -c Release -r win-x64 --self-contained false --no-restore -o publish-win-x64 -warnaserror
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: SystemInfo-win-x64
           path: publish-win-x64/
-
-  create-release:
-    name: Create GitHub Release
-    runs-on: windows-latest
-    needs: build-and-test
-
-    if: startsWith(github.ref, 'refs/tags/v')
-
-    steps:
-      - name: Download artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: SystemInfo-win-x64
-          path: release-artifacts
-
-      - name: Generate changelog
-        id: generate-changelog
-        run: |
-          $version = $env:GITHUB_REF.Replace('refs/tags/', '')
-          $changelog = Get-Content -Path CHANGELOG.md | Select-String -Pattern "^\# \[$version\]" -Context 0,30 | Select-Object -Last 1
-          echo "CHANGELOG<<EOF" >> $env:GITHUB_OUTPUT
-          echo $changelog | ForEach-Object { echo $_ } >> $env:GITHUB_OUTPUT
-          echo "EOF" >> $env:GITHUB_OUTPUT
-
-      - name: Create release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: release-artifacts/**
-          generate_release_notes: true
-          body_path: ${{ steps.generate-changelog.outputs.CHANGELOG }}
-          tag_name: ${{ github.ref }}
+          retention-days: 30
