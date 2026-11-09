@@ -34,7 +34,7 @@ Data comes **only from [LibreHardwareMonitor](https://github.com/LibreHardwareMo
 
 ## Install
 
-1. Download `SystemInfo_Setup_1.0.exe` from the [latest release](https://github.com/Clinical-Suppression/SystemInfo/releases/latest) and run it. It installs into Program Files with a Start Menu shortcut.
+1. Download `SystemInfo_Setup_1.0.1.exe` from the [latest release](https://github.com/Clinical-Suppression/SystemInfo/releases/latest) and run it. It installs into Program Files with a Start Menu shortcut.
 2. Install [PawnIO](https://pawnio.com/) for full sensor coverage (optional but recommended).
 3. Launch SystemInfo. On first run it builds the stock layout for your machine.
 

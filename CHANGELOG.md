@@ -10,8 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Application icon:** new `Assets/SystemInfo.ico` (SI monogram over an teal→green equalizer strip on a rounded dark badge), multi-resolution 16/24/32/48/64/128/256. Generator is committed at `scripts/icon/generate_icon.py` (Pillow + numpy). Also added `docs/icon.png` master.
 
+### Changed
+- **Release asset names now include the version:** the portable build ships as `SystemInfo_1.0.1_portable.exe`; the installer as `SystemInfo_Setup_1.0.1.exe` (was `SystemInfo_Setup_1.0.exe`). `installer.iss` `OutputBaseFilename` updated to match. Note: the `v1.0.1` tag was moved onto this commit so the release artifacts are built from the tagged source.
+
 ### Fixed
 - **Tray icon shipped incorrectly:** installed builds showed the generic Windows gear in the tray because `SystemInfo.ico` was referenced only at compile time. The `.ico` is now copied next to the app (`Content` + `CopyToOutputDirectory`) so `TrayService` finds it and loads it at runtime.
+- **Release assets were built from a pre-tag tree** in v1.0.1's first upload: metadata embedded the previous commit hash (`1.0.1+7966a36…`). Rebuilt from the tagged source and re-uploaded; both assets now carry `ProductVersion = 1.0.1+<tag commit>`.
 
 ## [1.0.0] - 2026-11-09
 
