@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-11-09
+
 ### Changed
 - **Application icon remastered** to match the shared icon family (Quick Scaler / Crispy Bills / Dupe Check): same deep-navy squircle, periwinkle inset outline and off-white monogram layout, with the teal->green equalizer strip as the SI purpose glyph. `Assets/SystemInfo.ico` and `docs/icon.png` regenerated; `scripts/icon/generate_icon.py` updated to the new design. No functional changes.
 
@@ -29,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Snap computation** allocates one transient list per drag frame instead of `Append().ToArray()` chains; `GraphScale` header legend rendering is gone entirely.
 
 ### Known-good verification
-- Build `-warnaserror` clean; 168/168 unit tests pass.
+- Build `-warnaserror` clean; 177/177 unit tests pass.
 
 ## [1.0.1] — 2026-11-09
 
