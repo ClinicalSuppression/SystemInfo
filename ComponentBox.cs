@@ -108,9 +108,9 @@ public sealed class ComponentBox : Border
             FontWeight = WpfFontWeights.SemiBold,
             Foreground = B("TextPrimaryBrush"),
             VerticalAlignment = WpfVerticalAlignment.Center,
-            ToolTip = "Double-click to rename",
             TextTrimming = TextTrimming.CharacterEllipsis,
         };
+        UpdateTitleText();
         var btnPick = new WpfButton { Content = "＋ Sensors", Background = WpfBrushes.Transparent, BorderThickness = new Thickness(0), Foreground = B("AccentBrush"), FontSize = 11, Cursor = WpfCursors.Hand, Margin = new Thickness(6, 0, 4, 0) };
         if (!string.IsNullOrEmpty(Layout.CustomKind))
         {
@@ -257,7 +257,7 @@ public sealed class ComponentBox : Border
             if (id == Layout.AppId) return;
             Layout.AppId = id;
             Layout.Title = AppHelper.DisplayName(id);
-            _titleText.Text = Layout.Title;
+            UpdateTitleText();
             LayoutChanged?.Invoke(this);
             if (_terminalHost is not null)
             {
@@ -396,6 +396,18 @@ public sealed class ComponentBox : Border
         catch { }
     }
 
+    private void UpdateTitleText()
+    {
+        string title = Layout.Title ?? "";
+        _titleText.Text = title;
+        if (string.IsNullOrWhiteSpace(title))
+            _titleText.ToolTip = string.IsNullOrWhiteSpace(Layout.SourceTitle)
+                ? "(empty title) — double-click to rename"
+                : $"(empty title) — created as “{Layout.SourceTitle}” — double-click to rename";
+        else
+            _titleText.ToolTip = $"{title} — double-click to rename";
+    }
+
     public void SetLocked(bool locked)
     {
         _locked = locked;
@@ -423,11 +435,11 @@ public sealed class ComponentBox : Border
     {
         Width = Layout.Width;
         Height = Layout.Height;
-        _titleText.Text = Layout.Title;
         if (Layout.CustomKind == "app" && _terminalHost is not null)
         {
             try { TerminalHost.Position(Layout, _terminalHost); } catch { }
         }
+        UpdateTitleText();
     }
 
     /// <summary>
@@ -608,7 +620,7 @@ public sealed class ComponentBox : Border
         panel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Auto) }); // label
         panel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // textbox
         panel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Auto) }); // buttons
-        var label = new TextBlock { Text = "Box title (empty = automatic title):", FontFamily = new WpfFontFamily("Segoe UI"), Foreground = B("TextPrimaryBrush"), Margin = new Thickness(12, 8, 12, 2) };
+        var label = new TextBlock { Text = "Box title:", FontFamily = new WpfFontFamily("Segoe UI"), Foreground = B("TextPrimaryBrush"), Margin = new Thickness(12, 8, 12, 2) };
         Grid.SetRow(label, 0); panel.Children.Add(label);
         tb.Margin = new Thickness(12, 0, 12, 0); tb.Padding = new Thickness(6, 4, 6, 4);
         tb.Height = 30; tb.VerticalContentAlignment = System.Windows.VerticalAlignment.Center;
@@ -624,10 +636,9 @@ public sealed class ComponentBox : Border
         string DeriveAuto() => LayoutStore.DeriveAutoTitle(Layout, StaticComponents);
         void Apply()
         {
-            string value = tb.Text.Trim();
-            if (string.IsNullOrWhiteSpace(value)) value = DeriveAuto();
+            string value = tb.Text.Trim();  // allow completely empty — erases the title text
             Layout.Title = value;
-            _titleText.Text = value;
+            UpdateTitleText();
             LayoutChanged?.Invoke(this);
             win.Close();
         }
@@ -678,6 +689,7 @@ public sealed class ComponentBox : Border
         {
             try { TerminalHost.Position(Layout, _terminalHost); } catch { }
         }
+        UpdateTitleText();
     }
 
     private double SnapLeadEdge(double leadPos, bool isX, double size)
@@ -1012,7 +1024,7 @@ public sealed class ComponentBox : Border
             Layout.AppId = chosen;
             Layout.AppArgs = argsBox.Text.Trim();
             Layout.Title = AppHelper.DisplayName(Layout.AppId);
-            _titleText.Text = Layout.Title;
+            UpdateTitleText();
             LayoutChanged?.Invoke(this);
             // Apply immediately inside the hosted box (don't just relaunch separately).
             if (_termCombo is not null && _terminalHost is not null && (oldId != chosen || true))

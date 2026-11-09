@@ -202,17 +202,6 @@ Check("CPU Tctl gains Temp suffix", ScaleHelper.ShortSensorLabel(Desc("Core (Tct
 Check("name already containing Temp unchanged", ScaleHelper.ShortSensorLabel(Desc("Composite Temperature", "Temperature", ComponentType.StorageSsd)) == "Composite Temperature");
 Check("null sensor label is empty", ScaleHelper.ShortSensorLabel(null) == "");
 
-Console.WriteLine("LayoutStore.AutoTitleFor (empty rename restores creation-time title)");
-Check("sensor box restores recorded title", LayoutStore.AutoTitleFor(new BoxLayout { ComponentKey = "Cpu:AMD Ryzen 7 5700G with Radeon Graphics", ComponentType = ComponentType.Cpu, SourceTitle = "Ryzen 7 5700G" }) == "Ryzen 7 5700G");
-Check("legacy sensor box falls back to short component name", LayoutStore.AutoTitleFor(new BoxLayout { ComponentKey = "Cpu:AMD Ryzen 7 5700G with Radeon Graphics", ComponentType = ComponentType.Cpu }) == "Ryzen 7 5700G");
-Check("processes box restores Top Processes", LayoutStore.AutoTitleFor(new BoxLayout { ComponentKey = "custom:processes", ComponentType = ComponentType.System, CustomKind = "processes" }) == "Top Processes");
-Check("power box restores Power", LayoutStore.AutoTitleFor(new BoxLayout { ComponentKey = "custom:power", ComponentType = ComponentType.System, CustomKind = "power" }) == "Power");
-Check("terminal box restores its terminal display name", LayoutStore.AutoTitleFor(new BoxLayout { ComponentKey = "custom:terminal", ComponentType = ComponentType.System, CustomKind = "app", AppId = "powershell" }) == "Windows PowerShell");
-Check("type:cpu box restores CPU", LayoutStore.AutoTitleFor(new BoxLayout { ComponentKey = "type:cpu", ComponentType = ComponentType.Cpu }) == "CPU");
-Check("type:storagessd box restores SSD", LayoutStore.AutoTitleFor(new BoxLayout { ComponentKey = "type:storagessd", ComponentType = ComponentType.StorageSsd }) == "SSD");
-Check("plain custom box restores Sensors", LayoutStore.AutoTitleFor(new BoxLayout { ComponentKey = "custom", ComponentType = ComponentType.Cpu }) == "Sensors");
-Check("whitespace SourceTitle falls back", LayoutStore.AutoTitleFor(new BoxLayout { ComponentKey = "type:gpu", ComponentType = ComponentType.Gpu, SourceTitle = "   " }) == "GPU");
-
 Console.WriteLine("LayoutStore.DeriveAutoTitle (hardware-aware)");
 var comps = new List<(string key, ComponentType type, string name)>
 {
@@ -266,8 +255,9 @@ var legacyProfile = new WindowLayout
     },
 };
 var legacyLoaded = LayoutStore.Normalize(legacyProfile);
-Check("legacy profile boxes get honoured titles after load", legacyLoaded.Boxes.All(b => b.SourceTitle == b.Title));
-Check("legacy empty rename returns the user's title, not the raw hardware name", LayoutStore.AutoTitleFor(legacyLoaded.Boxes[0]) == "Samsung SSD 860" && LayoutStore.AutoTitleFor(legacyLoaded.Boxes[1]) == "SanDisk Extreme Portable");
+Check("legacy profile boxes get SourceTitle stamped from their current title", legacyLoaded.Boxes.All(b => b.SourceTitle == b.Title));
+Check("empty title round-trips through Normalize unchanged", LayoutStore.Normalize(new WindowLayout { Boxes = { new BoxLayout { ComponentKey = "custom", Title = "", X = 8, Y = 8, Width = 100, Height = 100, SensorIds = ["x"] } } }).Boxes[0].Title == "");
+Check("empty title serializes and deserializes as empty", JsonSerializer.Deserialize<WindowLayout>(JsonSerializer.Serialize(new WindowLayout { Boxes = { new BoxLayout { ComponentKey = "custom", Title = "", X = 8, Y = 8, Width = 100, Height = 100, SensorIds = ["x"] } } }))?.Boxes[0].Title == "");
 
 Console.WriteLine("ScaleHelper.IsHigherBetter");
 static bool HB(string name, string cat = "Load", ComponentType type = ComponentType.Cpu)

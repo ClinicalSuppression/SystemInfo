@@ -272,16 +272,6 @@ public static class LayoutStore
     }
 
     /// <summary>
-    /// Title to restore when the user clears a box title.
-    /// Honours the recorded creation title; falls back to engine derivation for boxes without one.
-    /// </summary>
-    public static string AutoTitleFor(BoxLayout b)
-    {
-        if (!string.IsNullOrWhiteSpace(b.SourceTitle)) return b.SourceTitle.Trim();
-        return DeriveAutoTitle(b);
-    }
-
-    /// <summary>
     /// The stock layout used only on first run (no layout on disk yet) or after "Reset to defaults".
     /// It mirrors the reference 8-box arrangement, but every title/sensor is derived from the machine it runs on.
     /// New boxes are never added automatically after that — only the user adds boxes.
