@@ -46,6 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **Boxes are never created automatically:** After the first run, boxes exist only when the user adds them (`+ Add`). Startup no longer injects a box per detected component.
 - **Manual box sizes persist:** Startup no longer force-fits every box; `Compact boxes` / `Compact window` remain explicit menu actions.
+- **Bar heat colours revised:** every sensor now has a deterministic good/bad direction. Where a higher value is better — SSD `Life`/`Remaining`, `Memory Available`/`Available Memory`, `GPU Memory Free`, `Free Space`, battery charge — low values render red and high values green. Where a higher value is worse (loads, temperatures, `Used Space`, `Percentage Used`) low is green and high is red. Sensors without a definable good/bad direction (power, clocks/frequencies, voltages, network throughput, totals) keep the low=green, high=red default.
 - **`Fit boxes` renamed to `Compact boxes`** (it shrinks boxes to their content; it never moves them).
 - **`Compact window` rewritten:** it now removes empty space between boxes while keeping the rows and columns you arranged — it no longer flattens every box into one horizontal line, and it never resizes boxes.
 - **Update check:** Optional GitHub release check on startup (off by default, Settings only).
@@ -55,6 +56,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Rename dialog:** OK is no longer clipped and an empty name resets the box to its automatic title.
 - **Box hiding removed:** The eye button, `Show hidden boxes` menu and `Visible`-based hide paths are gone; use `Hide Background` for chrome-only hover hiding.
 - **GPU memory labels shortened:** `GPU Memory Used/Free/Total/Clock` and `GPU Memory` temperatures now read `VRAM Used/Free/Total/Clock` / `VRAM` in box rows and graph legends.
+- **Menu text trimmed:** the two `Layout` items no longer carry parenthesised explanations — `Compact boxes` / `Compact window`.
+- **Compact window no longer clips box edges:** the window is now sized as content plus the full window-chrome insets (14px horizontally, 54px vertically), so the outermost boxes never sit flush against the window frame.
 
 
 ### Planned

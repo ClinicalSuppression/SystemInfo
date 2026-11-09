@@ -234,6 +234,25 @@ namespace SystemInfo
             return name;
         }
 
+        /// <summary>
+        /// True when higher values of this sensor are better (render green at the high end, red at the low end).
+        /// Applies to remaining-capacity/redundancy sensors (SSD Life &amp; Remaining, available/free memory,
+        /// battery charge). Everything else keeps the default (higher = worse = red) — including power,
+        /// clocks/frequencies, voltages, loads, temperatures and network throughput.
+        /// </summary>
+        public static bool IsHigherBetter(SensorDescriptor? d)
+        {
+            if (d is null) return false;
+            string name = (d.Name ?? "").ToLowerInvariant();
+            string cat = (d.Category ?? "").ToLowerInvariant();
+            if (cat == "level" && d.ComponentType == ComponentType.Battery) return true;
+            if (name.Contains("life")) return true;        // "Life", "Composite Life", "Remaining Life" (storage Smart.Life)
+            if (name.Contains("remaining")) return true;   // "Remaining Life", "Remaining Lifetime", "Remaining charge"
+            if (name.Contains("available")) return true;   // "Memory Available", "Available Memory"
+            if (name.Contains(" free") || name.StartsWith("free")) return true; // "GPU Memory Free", "Free Space"
+            return false;
+        }
+
         /// <summary>Shorten a hardware name intelligently for box titles (uses built-in model DB + heuristics).</summary>
         public static string ShortTitle(ComponentType type, string fullName, IReadOnlyList<SensorDescriptor>? sensorsForComponent = null)
         {

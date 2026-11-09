@@ -190,6 +190,26 @@ Check("GPU Memory label is case-insensitive", ScaleHelper.ShortSensorLabel("gpu 
 Check("other sensor labels are unchanged", ScaleHelper.ShortSensorLabel("GPU Core") == "GPU Core" && ScaleHelper.ShortSensorLabel("CPU Total") == "CPU Total");
 Check("null sensor label is empty", ScaleHelper.ShortSensorLabel(null) == "");
 
+Console.WriteLine("ScaleHelper.IsHigherBetter");
+static bool HB(string name, string cat = "Load", ComponentType type = ComponentType.Cpu)
+    => ScaleHelper.IsHigherBetter(new SensorDescriptor { Id = name, ComponentKey = name, ComponentName = name, Name = name, Category = cat, ComponentType = type });
+Check("SSD Life is better when high", HB("Life", "Level", ComponentType.StorageSsd));
+Check("Remaining Life is better when high", HB("Remaining Life", "Level", ComponentType.StorageSsd));
+Check("VRAM free is better when high", HB("GPU Memory Free", "SmallData", ComponentType.Gpu));
+Check("Memory Available is better when high", HB("Memory Available", "Data", ComponentType.Memory));
+Check("Available Memory is better when high", HB("Available Memory", "Data", ComponentType.Memory));
+Check("Free Space is better when high", HB("Free Space", "Data", ComponentType.StorageSsd));
+Check("battery level is better when high", HB("Level", "Level", ComponentType.Battery));
+Check("CPU load is worse when high", !HB("CPU Total", "Load", ComponentType.Cpu));
+Check("GPU load is worse when high", !HB("GPU Core", "Load", ComponentType.Gpu));
+Check("temperatures are worse when high", !HB("Core (Tctl/Tdie)", "Temperature", ComponentType.Cpu));
+Check("CPU package power keeps low-is-green", !HB("Package", "Power", ComponentType.Cpu));
+Check("clock frequencies keep low-is-green", !HB("GPU Core", "Clock", ComponentType.Gpu));
+Check("used space is worse when high", !HB("Used Space", "Load", ComponentType.StorageSsd));
+Check("percentage used (wear) is worse when high", !HB("Percentage Used", "Load", ComponentType.StorageSsd));
+Check("memory used is worse when high", !HB("Memory Used", "Data", ComponentType.Memory));
+Check("VRAM used is worse when high", !HB("GPU Memory Used", "SmallData", ComponentType.Gpu));
+
 Console.WriteLine("LayoutCompactor");
 static BoxLayout MakeBox(string title, double x, double y, double w, double h) =>
     new() { ComponentKey = title, Title = title, X = x, Y = y, Width = w, Height = h };

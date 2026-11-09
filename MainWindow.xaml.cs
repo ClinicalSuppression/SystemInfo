@@ -262,9 +262,9 @@ public partial class MainWindow : Window
         }
         var miProfiles = new MenuItem { Header = "Profiles" };
         var miLayout = new MenuItem { Header = "Layout" };
-        var miFitBoxes = new MenuItem { Header = "Compact boxes (shrink to content, no clipping)" };
+        var miFitBoxes = new MenuItem { Header = "Compact boxes" };
         miFitBoxes.Click += (_, _) => CompactBoxes();
-        var miCompact = new MenuItem { Header = "Compact window (remove empty space, keep arrangement)" };
+        var miCompact = new MenuItem { Header = "Compact window" };
         miCompact.Click += (_, _) => CompactWindow();
         miLayout.Items.Add(miFitBoxes);
         miLayout.Items.Add(miCompact);
@@ -630,8 +630,12 @@ public partial class MainWindow : Window
         var visible = _layout.Boxes.Where(b => b.Visible).ToList();
         if (visible.Count == 0) return;
         var (contentW, contentH) = LayoutCompactor.ContentSize(_layout);
-        Width = Math.Clamp(contentW, MinWidth, MaxWidth);
-        Height = Math.Clamp(contentH, MinHeight, MaxHeight);
+        // Layout coordinates live inside the ScrollViewer viewport, which is inset by the window
+        // chrome: 6px outer margin + 1px border on each side (top also carries the 34px title bar + 6px gap).
+        const double ChromeWidth = 14;   // 7px left (1 border + 6 margin) + 7px right
+        const double ChromeHeight = 54;  // 46px top (border + 6 margin + 34 title + 6 gap) + 7px bottom + 1px border
+        Width = Math.Clamp(contentW + ChromeWidth, MinWidth, MaxWidth);
+        Height = Math.Clamp(contentH + ChromeHeight, MinHeight, MaxHeight);
 
         SaveLayout();
         RebuildBoxes();

@@ -1197,8 +1197,8 @@ public sealed class SensorRow : StackPanel
             var track = new Border { Background = ThemeService.Find("TrackBrush"), BorderBrush = ThemeService.Find("TrackBorderBrush"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(3), Height = barHeight, HorizontalAlignment = WpfHorizontalAlignment.Stretch, VerticalAlignment = WpfVerticalAlignment.Center };
             double pct = GetBarPercent(d, value, history);
             double fillW = pct * Math.Max(28, barWidth - 2);
-            // "Life" (LHM Storage Smart.Life = % rated lifetime REMAINING, 100=new, 0=dead) — reverse heat so healthy=green, worn=red.
-            _invertHeat = d is not null && (d.Name.Contains("Life", StringComparison.OrdinalIgnoreCase) || d.Name.Contains("Remaining", StringComparison.OrdinalIgnoreCase) || (d.ComponentType == ComponentType.Battery && d.Category.Equals("Level", StringComparison.OrdinalIgnoreCase)));
+            // Bar heat: good=green, bad=red. Sensors where higher is better flip the scale.
+            _invertHeat = ScaleHelper.IsHigherBetter(d);
             _barInnerW = Math.Max(28, barWidth - 2);
             var filled = new Border { HorizontalAlignment = WpfHorizontalAlignment.Left, Width = fillW, Height = Math.Max(4, barHeight - 2), CornerRadius = new CornerRadius(3), Background = ThemeService.HeatBrush(_invertHeat ? 1 - pct : pct), Opacity = 1 };
             var clip = new Canvas { Width = _barInnerW, Height = Math.Max(4, barHeight - 2), ClipToBounds = true };
