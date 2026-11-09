@@ -1,4 +1,4 @@
-﻿# SystemInfo Changelog
+# SystemInfo Changelog
 
 All notable changes to this project will be documented in this file.
 
@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+### Changed
+- **Application icon remastered** to match the shared icon family (Quick Scaler / Crispy Bills / Dupe Check): same deep-navy squircle, periwinkle inset outline and off-white monogram layout, with the teal->green equalizer strip as the SI purpose glyph. `Assets/SystemInfo.ico` and `docs/icon.png` regenerated; `scripts/icon/generate_icon.py` updated to the new design. No functional changes.
 
 ### Fixed
 - **Memory/event leak (primary defect):** rows of graph-enabled sensors were never unsubscribed from the process-wide `CompositionTarget.Rendering` event on row replacement, `Detach()` (new) is now called on row replacement, box rebuild, box removal and before all box destruction; `MainWindow.RebuildBoxes` detaches every box before clearing; `Layout.SensorIds` set changes reset sticky widths so purged sensors shrink back.
