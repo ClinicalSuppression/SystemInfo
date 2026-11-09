@@ -69,7 +69,8 @@ public sealed class ComponentBox : Border
     private TextBlock? _termOverlayText;
     private bool _suppressTermCombo;
     private bool _locked;
-    private bool _dragging;
+    private bool _dragging, _pendingDrag;
+    private const double DragThreshold = 4;
     private WpfPoint _dragStart;
     private double _startLeft, _startTop;
     internal string LatestGraphDebug = "";
@@ -144,6 +145,9 @@ public sealed class ComponentBox : Border
         var boxMenu = new System.Windows.Controls.ContextMenu();
         var miCopy = new System.Windows.Controls.MenuItem { Header = "Copy box as image" };
         miCopy.Click += (_, _) => CopyAsImage();
+        var miRename = new System.Windows.Controls.MenuItem { Header = "Rename box…" };
+        miRename.Click += (_, _) => OpenRenameDialog();
+        boxMenu.Items.Add(miRename);
         boxMenu.Items.Add(miCopy);
         ContextMenu = boxMenu;
 
@@ -535,7 +539,7 @@ public sealed class ComponentBox : Border
             e.Handled = true;
             return;
         }
-        _dragging = true;
+        _pendingDrag = true;
         _dragStart = e.GetPosition(_canvasParent);
         _startLeft = Canvas.GetLeft(this);
         _startTop = Canvas.GetTop(this);
@@ -545,12 +549,21 @@ public sealed class ComponentBox : Border
 
     private void Header_MouseMove(object sender, WpfMouseEventArgs e)
     {
-        if (!_dragging || _locked) return;
+        if (_locked) return;
+        if (!_pendingDrag && !_dragging) return;
         var pos = e.GetPosition(_canvasParent);
-        double nx = Math.Max(0, _startLeft + (pos.X - _dragStart.X));
-        double ny = Math.Max(0, _startTop + (pos.Y - _dragStart.Y));
+        double dx = pos.X - _dragStart.X;
+        double dy = pos.Y - _dragStart.Y;
         double maxX = Math.Max(0, _canvasParent.ActualWidth - Layout.Width);
         double maxY = Math.Max(0, _canvasParent.ActualHeight - Layout.Height);
+        if (!_dragging)
+        {
+            if (dx * dx + dy * dy < DragThreshold * DragThreshold) return; // still a click, not a drag
+            _pendingDrag = false;
+            _dragging = true;
+        }
+        double nx = Math.Max(0, _startLeft + dx);
+        double ny = Math.Max(0, _startTop + dy);
         nx = Math.Clamp(nx, 0, maxX);
         ny = Math.Clamp(ny, 0, maxY);
         // Snap together with minimal space (4px gap) to other boxes and canvas edges.
@@ -600,8 +613,10 @@ public sealed class ComponentBox : Border
 
     private void Header_MouseLeftButtonUp(object sender, WpfMouseButtonEventArgs e)
     {
-        if (!_dragging) return;
+        bool wasDragging = _dragging;
+        _pendingDrag = false;
         _dragging = false;
+        if (!wasDragging) return;
         try { (sender as FrameworkElement)?.ReleaseMouseCapture(); } catch { }
         Moved?.Invoke(this);
     }
