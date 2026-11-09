@@ -422,7 +422,7 @@ public sealed class ComponentBox : Border
     }
 
     /// <summary>
-    /// Measure the natural required size for this box given current content and fonts — used by Fit boxes / Compact.
+    /// Measure the natural required size for this box given current content and fonts — used by Compact boxes.
     /// Natural width is computed from actual text measurements; never causes ellipsis.
     /// </summary>
     public (double Width, double Height) MeasureNaturalSize(IReadOnlyDictionary<string, SensorDescriptor> catalog, IReadOnlyDictionary<string, double?> values, IReadOnlyDictionary<string, SensorHistory> histories, double fontSize, double barHeight, double graphHeight)
@@ -449,7 +449,7 @@ public sealed class ComponentBox : Border
             if (ScaleHelper.ModeHasBar(mode)) anyBar = true;
             if (ScaleHelper.ModeHasGraph(mode)) anyGraph = true;
 
-            string name = d?.Name ?? id;
+            string name = ScaleHelper.ShortSensorLabel(d?.Name) is { Length: > 0 } shortName ? shortName : id;
             double nameW = ScaleHelper.MeasureTextWidth(name, fontSize) + 8;
             nameMax = Math.Max(nameMax, nameW);
 
@@ -777,7 +777,7 @@ public sealed class ComponentBox : Border
             foreach (string id in Layout.SensorIds)
             {
                 catalog.TryGetValue(id, out SensorDescriptor? d2);
-                string nm = d2?.Name ?? id;
+                string nm = ScaleHelper.ShortSensorLabel(d2?.Name) is { Length: > 0 } sn ? sn : id;
                 nameMin = Math.Max(nameMin, ScaleHelper.MeasureTextWidth(nm, fontSize) + 8);
             }
         }
@@ -1053,7 +1053,7 @@ public sealed class ComponentBox : Border
                 var d = catalog[lid];
                 int pal = Layout.GraphSeriesColors != null && Layout.GraphSeriesColors.TryGetValue(lid, out int ci) ? ci : li;
                 var sw = new System.Windows.Controls.Border { Width = 16, Height = 3, Background = GraphBrush(pal), VerticalAlignment = WpfVerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) };
-                var lab = new TextBlock { Text = d.Name, FontFamily = new WpfFontFamily("Segoe UI"), FontSize = 10, Foreground = B("TextMutedBrush"), VerticalAlignment = WpfVerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 0, 10, 0), MaxWidth = 110, ToolTip = $"{d.Name} ({d.Category} {d.Unit})" };
+                var lab = new TextBlock { Text = ScaleHelper.ShortSensorLabel(d.Name), FontFamily = new WpfFontFamily("Segoe UI"), FontSize = 10, Foreground = B("TextMutedBrush"), VerticalAlignment = WpfVerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 0, 10, 0), MaxWidth = 110, ToolTip = $"{d.Name} ({d.Category} {d.Unit})" };
                 var item = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, Margin = new Thickness(0, 0, 6, 4) };
                 item.Children.Add(sw); item.Children.Add(lab);
                 _legendPanel.Children.Add(item);
@@ -1173,7 +1173,7 @@ public sealed class SensorRow : StackPanel
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(showText ? valueW : 0) });
         Children.Add(row);
 
-        string name = d?.Name ?? id;
+        string name = ScaleHelper.ShortSensorLabel(d?.Name) is { Length: > 0 } label ? label : id;
         var nameText = new TextBlock { Text = name, FontFamily = new WpfFontFamily("Segoe UI"), FontSize = fontSize, Foreground = ThemeService.Find("TextPrimaryBrush"), TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = WpfVerticalAlignment.Center };
         Grid.SetColumn(nameText, 0);
         row.Children.Add(nameText);

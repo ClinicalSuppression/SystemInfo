@@ -45,13 +45,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **Boxes are never created automatically:** After the first run, boxes exist only when the user adds them (`+ Add`). Startup no longer injects a box per detected component.
-- **Manual box sizes persist:** Startup no longer force-fits every box; `Fit boxes` / `Compact window` remain explicit menu actions.
+- **Manual box sizes persist:** Startup no longer force-fits every box; `Compact boxes` / `Compact window` remain explicit menu actions.
+- **`Fit boxes` renamed to `Compact boxes`** (it shrinks boxes to their content; it never moves them).
+- **`Compact window` rewritten:** it now removes empty space between boxes while keeping the rows and columns you arranged — it no longer flattens every box into one horizontal line, and it never resizes boxes.
 - **Update check:** Optional GitHub release check on startup (off by default, Settings only).
 
 ### Fixed
 - **Title shortening:** CPU/GPU titles now use the built-in model list and manufacturer-only heuristics; storage/network titles are shortened without dropping the model; RAM titles include the normalized DDR speed (`RAM 2400Mhz`).
 - **Rename dialog:** OK is no longer clipped and an empty name resets the box to its automatic title.
 - **Box hiding removed:** The eye button, `Show hidden boxes` menu and `Visible`-based hide paths are gone; use `Hide Background` for chrome-only hover hiding.
+- **GPU memory labels shortened:** `GPU Memory Used/Free/Total/Clock` and `GPU Memory` temperatures now read `VRAM Used/Free/Total/Clock` / `VRAM` in box rows and graph legends.
 
 
 ### Planned

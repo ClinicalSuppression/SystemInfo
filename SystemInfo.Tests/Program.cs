@@ -181,6 +181,51 @@ Check("stock boxes are all inside the window", stock.Boxes.All(b => b.X >= 0 && 
 Check("stock CPU total is graphed", stockCpu.SensorModes[$"lhm:{cpuKey}:Load:CPU Total"] is 5 or 4);
 Check("stock CPU core row is a bar", stockCpu.SensorModes[$"lhm:{cpuKey}:Load:CPU Core #1"] == 3);
 
+Console.WriteLine("ScaleHelper.ShortSensorLabel");
+Check("GPU Memory Used -> VRAM Used", ScaleHelper.ShortSensorLabel("GPU Memory Used") == "VRAM Used");
+Check("GPU Memory Free -> VRAM Free", ScaleHelper.ShortSensorLabel("GPU Memory Free") == "VRAM Free");
+Check("GPU Memory Total -> VRAM Total", ScaleHelper.ShortSensorLabel("GPU Memory Total") == "VRAM Total");
+Check("GPU Memory -> VRAM", ScaleHelper.ShortSensorLabel("GPU Memory") == "VRAM");
+Check("GPU Memory label is case-insensitive", ScaleHelper.ShortSensorLabel("gpu memory clock") == "VRAM clock");
+Check("other sensor labels are unchanged", ScaleHelper.ShortSensorLabel("GPU Core") == "GPU Core" && ScaleHelper.ShortSensorLabel("CPU Total") == "CPU Total");
+Check("null sensor label is empty", ScaleHelper.ShortSensorLabel(null) == "");
+
+Console.WriteLine("LayoutCompactor");
+static BoxLayout MakeBox(string title, double x, double y, double w, double h) =>
+    new() { ComponentKey = title, Title = title, X = x, Y = y, Width = w, Height = h };
+
+// The reference 8-box arrangement: already tight, so compacting must not move anything
+// (in particular it must not flatten everything into one horizontal row).
+var refLayout = new WindowLayout();
+foreach (var b in new[]
+{
+    MakeBox("CPU", 8, 8, 201, 358), MakeBox("Ethernet", 8, 370, 201, 140),
+    MakeBox("GPU", 213, 8, 223, 506),
+    MakeBox("Top Processes", 440, 8, 230, 146), MakeBox("SSD 860", 440, 158, 230, 119),
+    MakeBox("SSD 970", 440, 281, 276, 119), MakeBox("SanDisk", 440, 404, 266, 119),
+    MakeBox("PowerShell", 674, 8, 389, 269),
+}) refLayout.Boxes.Add(b);
+var refBefore = refLayout.Boxes.Select(b => (b.Title, b.X, b.Y, b.Width, b.Height)).ToList();
+LayoutCompactor.Compact(refLayout);
+Check("compact keeps the reference rows and columns",
+    refLayout.Boxes.Zip(refBefore).All(p => p.First.X == p.Second.X && p.First.Y == p.Second.Y
+                                         && p.First.Width == p.Second.Width && p.First.Height == p.Second.Height));
+Check("compact keeps 4 distinct columns", refLayout.Boxes.Select(b => b.X).Distinct().Count() == 4);
+Check("compact reports no movement when already tight", !LayoutCompactor.Compact(refLayout));
+
+var gapLayout = new WindowLayout();
+gapLayout.Boxes.Add(MakeBox("A1", 8, 8, 200, 100));
+gapLayout.Boxes.Add(MakeBox("A2", 8, 400, 200, 100));
+gapLayout.Boxes.Add(MakeBox("B1", 500, 8, 150, 300));
+LayoutCompactor.Compact(gapLayout);
+Check("compact removes vertical gaps inside a column", gapLayout.Boxes.First(b => b.Title == "A2").Y == 112);
+Check("compact slides a column left into the empty space", gapLayout.Boxes.First(b => b.Title == "B1").X == 212);
+Check("compact keeps rows (top edge) unchanged", gapLayout.Boxes.First(b => b.Title == "B1").Y == 8);
+Check("compact never resizes boxes", gapLayout.Boxes.First(b => b.Title == "A1").Width == 200 && gapLayout.Boxes.First(b => b.Title == "B1").Height == 300);
+var (contentW, contentH) = LayoutCompactor.ContentSize(gapLayout);
+Check("compact content size is the tight box bounds plus padding",
+    contentW == gapLayout.Boxes.Max(b => b.X + b.Width) + 8 && contentH == gapLayout.Boxes.Max(b => b.Y + b.Height) + 8);
+
 Console.WriteLine("SensorHistory");
 
 var h1 = new SensorHistory { Capacity = 10 };

@@ -224,6 +224,16 @@ namespace SystemInfo
             return $"{value.Value.ToString(fmt)} {d.Unit}".Trim();
         }
 
+        /// <summary>Short row label for display (e.g. "GPU Memory Used" → "VRAM Used"); other names pass through.</summary>
+        public static string ShortSensorLabel(string? name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return name ?? "";
+            const string prefix = "GPU Memory";
+            if (name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                return "VRAM" + name[prefix.Length..];
+            return name;
+        }
+
         /// <summary>Shorten a hardware name intelligently for box titles (uses built-in model DB + heuristics).</summary>
         public static string ShortTitle(ComponentType type, string fullName, IReadOnlyList<SensorDescriptor>? sensorsForComponent = null)
         {

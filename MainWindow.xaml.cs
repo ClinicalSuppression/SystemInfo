@@ -38,7 +38,7 @@ public partial class MainWindow : Window
         BuildContextMenu();
         RefreshThumb();
 
-        // Headless test harness: if --fit-test/--compact-test was specified, apply fit/compact, write results, exit.
+        // Headless test harness: if --fit-test/--compact-test was specified, run the action, write results, exit.
         if (App.RunTestAction is not null)
         {
             InitNativeResize();
@@ -50,8 +50,8 @@ public partial class MainWindow : Window
             var lines = new List<string> { "SystemInfo compact-test", $"action={App.RunTestAction}" };
             if (App.RunTestAction == "fit")
             {
-                FitAllBoxes();
-                lines.Add($"applied=fit; visible={_boxControls.Count}");
+                CompactBoxes();
+                lines.Add($"applied=compact boxes; visible={_boxControls.Count}");
                 lines.AddRange(_boxControls.Select(c => $"box={c.Layout.Title} x={c.Layout.X:0} y={c.Layout.Y:0} w={c.Layout.Width:0} h={c.Layout.Height:0}"));
             }
             else if (App.RunTestAction == "compact")
@@ -93,8 +93,8 @@ public partial class MainWindow : Window
                 var lines = new List<string> { $"SystemInfo compact-test - {DateTime.Now:yyyy-MM-dd HH:mm:ss}", $"action={App.RunTestAction}" };
                 if (App.RunTestAction == "fit")
                 {
-                    FitAllBoxes();
-                    lines.Add($"applied=fit boxes; visible={_boxControls.Count}");
+                    CompactBoxes();
+                    lines.Add($"applied=compact boxes; visible={_boxControls.Count}");
                     foreach (var c in _boxControls) lines.Add($"box={c.Layout.Title} x={c.Layout.X:0.0} y={c.Layout.Y:0.0} w={c.Layout.Width:0.0} h={c.Layout.Height:0.0}");
                 }
                 else if (App.RunTestAction == "compact")
@@ -262,9 +262,9 @@ public partial class MainWindow : Window
         }
         var miProfiles = new MenuItem { Header = "Profiles" };
         var miLayout = new MenuItem { Header = "Layout" };
-        var miFitBoxes = new MenuItem { Header = "Fit boxes (shrink to content, no clipping)" };
-        miFitBoxes.Click += (_, _) => FitAllBoxes();
-        var miCompact = new MenuItem { Header = "Compact window (fit + snap boxes together)" };
+        var miFitBoxes = new MenuItem { Header = "Compact boxes (shrink to content, no clipping)" };
+        miFitBoxes.Click += (_, _) => CompactBoxes();
+        var miCompact = new MenuItem { Header = "Compact window (remove empty space, keep arrangement)" };
         miCompact.Click += (_, _) => CompactWindow();
         miLayout.Items.Add(miFitBoxes);
         miLayout.Items.Add(miCompact);
@@ -591,7 +591,8 @@ public partial class MainWindow : Window
         return (8, nextY);
     }
 
-    private void FitAllBoxes()
+    /// <summary>Shrinks every box to the size its current content needs (never clips). Does not move boxes.</summary>
+    private void CompactBoxes()
     {
         if (_collector is null) return;
         Dictionary<string, double?> values;
@@ -623,47 +624,15 @@ public partial class MainWindow : Window
 
     private void CompactWindow()
     {
-        FitAllBoxes();
-        // Build row clusters: boxes whose vertical spans overlap belong to the same row cluster.
-        var visible = _layout.Boxes.Where(b => b.Visible).OrderBy(b => b.Y).ThenBy(b => b.X).ToList();
+        // Remove empty space only: keep every box's size and its row/column arrangement.
+        LayoutCompactor.Compact(_layout);
+
+        var visible = _layout.Boxes.Where(b => b.Visible).ToList();
         if (visible.Count == 0) return;
+        var (contentW, contentH) = LayoutCompactor.ContentSize(_layout);
+        Width = Math.Clamp(contentW, MinWidth, MaxWidth);
+        Height = Math.Clamp(contentH, MinHeight, MaxHeight);
 
-        // Greedy overlap clustering (preserves row/column identity).
-        var clusters = new List<List<BoxLayout>>();
-        foreach (var b in visible)
-        {
-            bool added = false;
-            foreach (var cl in clusters)
-            {
-                double clTop = cl.Min(o => o.Y), clBottom = cl.Max(o => o.Y + o.Height);
-                if (b.Y < clBottom && b.Y + b.Height > clTop) { cl.Add(b); added = true; break; }
-            }
-            if (!added) clusters.Add(new List<BoxLayout> { b });
-        }
-
-        const double GAP = 4.0, PAD = 8.0;
-        double curY = PAD;
-        double maxRight = PAD;
-        foreach (var cl in clusters)
-        {
-            // Keep horizontal order within the cluster, pack L->R with GAP.
-            var ordered = cl.OrderBy(b => b.X).ToList();
-            double curX = PAD;
-            double clBottom = curY;
-            foreach (var b in ordered)
-            {
-                b.X = curX;
-                b.Y = curY;
-                curX += b.Width + GAP;
-                clBottom = Math.Max(clBottom, b.Y + b.Height);
-            }
-            maxRight = Math.Max(maxRight, curX - GAP);
-            curY = clBottom + GAP;
-        }
-
-        // Fit window to content bounds.
-        Width = Math.Clamp(maxRight + PAD, MinWidth, MaxWidth);
-        Height = Math.Clamp(curY + PAD, MinHeight, MaxHeight);
         SaveLayout();
         RebuildBoxes();
         RefreshAll();
