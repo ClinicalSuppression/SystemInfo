@@ -1,4 +1,4 @@
-// Embedded terminal hosting: runs cmd / PowerShell / PuTTY / Windows Terminal
+// Embedded terminal hosting: runs cmd / PowerShell / PuTTY inside the app's own box so the program stays contained in that box.
 // inside the app's own box so the program stays contained in that box.
 // Clean approach: start the terminal as a Win32 top-level window, then
 // SetParent it into a small invisible host HWND (HwndHost) inside the box
@@ -240,10 +240,9 @@ public static class TerminalHost
         try
         {
             session.BeforeWindows = SnapshotVisibleWindows();
-            // On Windows 11 the default terminal is Windows Terminal: powershell/cmd open in a
-            // separate WindowsTerminal.exe UWP window (Cascadia class) that cannot be SetParent-ed
-            // reliably and stays outside the box. Force legacy conhost per-process so the shell
-            // gets a classic ConsoleWindowClass window owned by conhost we can truly embed.
+            // Force legacy conhost per-process so the shell gets a classic ConsoleWindowClass
+            // window owned by conhost we can truly embed via SetParent. (On Windows 11, shells
+            // launched through Windows Terminal open in a separate UWP window that we cannot embed.)
             bool forceConhost = appId is "cmd" or "powershell" or "pwsh";
             string fileName = resolved;
             string arguments = args;

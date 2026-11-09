@@ -984,7 +984,7 @@ public sealed class ComponentBox : Border
         }
         if (preset.SelectedItem is null && preset.Items.Count > 0) preset.SelectedItem = preset.Items[0];
         string presetId = preset.SelectedItem is System.Windows.Controls.ComboBoxItem sel0 ? sel0.Tag?.ToString() ?? "cmd" : "cmd";
-        var custom = new System.Windows.Controls.TextBox { Text = AppHelper.PresetIds.Contains(Layout.AppId) ? "" : Layout.AppId, Margin = new Thickness(12, 4, 12, 4), ToolTip = "Full path to terminal .exe only (cmd.exe / powershell.exe / pwsh.exe / putty.exe / wt.exe)" };
+        var custom = new System.Windows.Controls.TextBox { Text = AppHelper.PresetIds.Contains(Layout.AppId) ? "" : Layout.AppId, Margin = new Thickness(12, 4, 12, 4), ToolTip = "Full path to terminal .exe only (cmd.exe / powershell.exe / pwsh.exe / putty.exe)" };
         var argsBox = new System.Windows.Controls.TextBox { Text = Layout.AppArgs, Margin = new Thickness(12, 4, 12, 4) };
         // Last-picked saved sessions are persisted in AppArgs (e.g. -load "Home Server - ProxMox").
         var savedSessions = new System.Windows.Controls.ComboBox { Margin = new Thickness(12, 4, 12, 4), Visibility = Layout.AppId == "putty" ? Visibility.Visible : Visibility.Collapsed, ToolTip = "PuTTY saved sessions (HKCU:\\SimonTatham\\PuTTY\\Sessions)", Background = B("ButtonBackgroundBrush"), Foreground = B("TextPrimaryBrush") };
@@ -1035,7 +1035,7 @@ public sealed class ComponentBox : Border
             if (string.IsNullOrWhiteSpace(path)) return;
             if (!AppHelper.IsTerminalExe(path))
             {
-                MessageBox.Show("Terminals only: choose cmd.exe, powershell.exe, pwsh.exe, putty.exe, or wt.exe.", "Terminal", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("Terminals only: choose cmd.exe, powershell.exe, pwsh.exe, or putty.exe.", "Terminal", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
             custom.Text = path;
@@ -1059,7 +1059,7 @@ public sealed class ComponentBox : Border
             {
                 if (!AppHelper.IsTerminalExe(customPath))
                 {
-                    MessageBox.Show("Terminals only: choose cmd.exe, powershell.exe, pwsh.exe, putty.exe, or wt.exe.", "Terminal", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    MessageBox.Show("Terminals only: choose cmd.exe, powershell.exe, pwsh.exe, or putty.exe.", "Terminal", MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
                 chosen = customPath;
@@ -1497,7 +1497,7 @@ public static class ProcessHelper
 public static class AppHelper
 {
     // Terminals only. The app box embeds one terminal and keeps it inside the box.
-    public static readonly string[] PresetIds = ["cmd", "powershell", "pwsh", "putty", "wt"];
+    public static readonly string[] PresetIds = ["cmd", "powershell", "pwsh", "putty"];
 
     public static string DisplayName(string appId) => appId switch
     {
@@ -1505,7 +1505,6 @@ public static class AppHelper
         "powershell" => "Windows PowerShell",
         "pwsh" => "PowerShell 7",
         "putty" => "PuTTY",
-        "wt" => "Windows Terminal",
         _ => System.IO.Path.GetFileNameWithoutExtension(appId ?? "cmd"),
     };
 
@@ -1529,7 +1528,6 @@ public static class AppHelper
             "putty" => FindExe("putty.exe",
                 System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "PuTTY", "putty.exe"),
                 System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "PuTTY", "putty.exe")),
-            "wt" => FindExe("wt.exe", System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "wt.exe")),
             _ => appId,
         };
     }
@@ -1548,7 +1546,7 @@ public static class AppHelper
     {
         if (string.IsNullOrWhiteSpace(path)) return false;
         string name = System.IO.Path.GetFileName(path).ToLowerInvariant();
-        return name is "cmd.exe" or "powershell.exe" or "pwsh.exe" or "putty.exe" or "putty64.exe" or "plink.exe" or "wt.exe";
+        return name is "cmd.exe" or "powershell.exe" or "pwsh.exe" or "putty.exe" or "putty64.exe" or "plink.exe";
     }
 
     public static bool IsAllowedAppId(string? appId)
@@ -1581,8 +1579,8 @@ public static class AppHelper
     {
         var dlg = new Microsoft.Win32.OpenFileDialog
         {
-            Title = "Choose terminal executable (cmd / PowerShell / PuTTY / Windows Terminal)",
-            Filter = "Terminal exes (cmd.exe;powershell.exe;pwsh.exe;putty.exe;wt.exe)|cmd.exe;powershell.exe;pwsh.exe;putty.exe;wt.exe|Executables (*.exe)|*.exe",
+            Title = "Choose terminal executable (cmd / PowerShell / PuTTY)",
+            Filter = "Terminal exes (cmd.exe;powershell.exe;pwsh.exe;putty.exe)|cmd.exe;powershell.exe;pwsh.exe;putty.exe|Executables (*.exe)|*.exe",
         };
         return dlg.ShowDialog() == true ? dlg.FileName : null;
     }

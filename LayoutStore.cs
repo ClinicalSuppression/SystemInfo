@@ -177,7 +177,14 @@ public static class LayoutStore
             if (b.CustomKind is not ("processes" or "power" or "app")) b.CustomKind = "";
             b.ProcessLimit = Math.Clamp(b.ProcessLimit, 1, 20);
             if (b.ProcessSort is not ("Cpu" or "Ram" or "Name" or "Threads")) b.ProcessSort = "Cpu";
-            b.AppId ??= "cmd";
+            b.AppId ??= "pwsh";
+            // Windows Terminal can't embed. Migrate existing wt selections to the classic conhost-hosted pwsh selection on first load.
+            if (string.Equals(b.AppId, "wt", StringComparison.OrdinalIgnoreCase))
+            {
+                b.AppId = "pwsh";
+                if (string.Equals(b.Title, "Windows Terminal", StringComparison.OrdinalIgnoreCase)) b.Title = AppHelper.DisplayName("pwsh");
+                if (string.IsNullOrWhiteSpace(b.SourceTitle)) b.SourceTitle = "Windows Terminal";
+            }
             b.AppArgs ??= "";
             // Terminals only. Migrate legacy non-terminal bindings (explorer, notepad, ...) to cmd.
             if (!AppHelper.IsAllowedAppId(b.AppId)) b.AppId = "cmd";
@@ -336,9 +343,9 @@ public static class LayoutStore
         for (int i = 0; i < storage.Count; i++)
             AddIf(col3, MakeComponent(storage[i], 158 + i * 123, storageWidths[i], 119));
 
-        // Column 4: embedded terminal.
-        var term = CreateAppBox(8, "powershell");
-        term.Title = AppHelper.DisplayName("powershell");
+        // Column 4: embedded terminal (pwsh — the default; PowerShell 7).
+        var term = CreateAppBox(8, "pwsh");
+        term.Title = AppHelper.DisplayName("pwsh");
         term.Width = 389; term.Height = 269;
         col4.Add(term);
 

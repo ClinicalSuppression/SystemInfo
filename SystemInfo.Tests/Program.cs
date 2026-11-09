@@ -175,7 +175,7 @@ Check("stock CPU title is shortened from the real CPU name", stockCpu.Title == "
 Check("stock CPU shows total + one row per physical core", stockCpu.SensorIds.Contains($"lhm:{cpuKey}:Load:CPU Total") && stockCpu.SensorIds.Contains($"lhm:{cpuKey}:Load:CPU Core #1") && !stockCpu.SensorIds.Contains($"lhm:{cpuKey}:Load:CPU Core #2"));
 Check("stock CPU sensors all belong to the CPU instance", stockCpu.SensorIds.All(id => stockCatalog[id].ComponentKey == cpuKey));
 Check("stock prefers wired Ethernet over Wi-Fi", stock.Boxes.Count(b => b.ComponentType == ComponentType.Network) == 1 && stock.Boxes.First(b => b.ComponentType == ComponentType.Network).Title == "Ethernet");
-Check("stock includes an embedded PowerShell terminal", stock.Boxes.Any(b => b.CustomKind == "app" && b.AppId == "powershell" && b.Title == "Windows PowerShell"));
+Check("stock includes an embedded PowerShell 7 terminal", stock.Boxes.Any(b => b.CustomKind == "app" && b.AppId == "pwsh" && b.Title == "PowerShell 7"));
 Check("stock includes Top Processes", stock.Boxes.Any(b => b.CustomKind == "processes" && b.Title == "Top Processes"));
 Check("stock does not overlap columns", stockCpu.X + stockCpu.Width <= stock.Boxes.First(b => b.ComponentType == ComponentType.Gpu).X);
 Check("stock window matches reference size", stock.Width >= 1079 && stock.Height >= 586);
@@ -371,6 +371,9 @@ longTitle.Boxes.Add(new BoxLayout { ComponentKey = "custom", Title = "A Very Lon
 Check("long user title does not force width on load", LayoutStore.Normalize(longTitle).Boxes[0].Width == 120);
 Check("legacy boxes get SourceTitle stamped from their current title", narrowNorm.Boxes[0].SourceTitle == "Sensors 1" && tooNarrowNorm.Boxes[0].SourceTitle == "Sensors 1" && LayoutStore.Normalize(longTitle).Boxes[0].SourceTitle == longTitle.Boxes[0].Title);
 Check("migration never overwrites a recorded SourceTitle", LayoutStore.Normalize(new WindowLayout { Boxes = { new BoxLayout { ComponentKey = "custom", Title = "My Rename", SourceTitle = "Sensors 1", X = 8, Y = 8, Width = 100, Height = 100 } } }).Boxes[0].SourceTitle == "Sensors 1");
+Check("legacy wt app box migrates to pwsh on load", LayoutStore.Normalize(new WindowLayout { Boxes = { new BoxLayout { ComponentKey = "custom:terminal", ComponentType = ComponentType.System, CustomKind = "app", AppId = "wt", Title = "Windows Terminal", SourceTitle = "Windows Terminal", X = 8, Y = 8, Width = 100, Height = 100 } } }).Boxes[0].AppId == "pwsh");
+Check("legacy wt app box title migrates to PowerShell 7", LayoutStore.Normalize(new WindowLayout { Boxes = { new BoxLayout { ComponentKey = "custom:terminal", ComponentType = ComponentType.System, CustomKind = "app", AppId = "wt", Title = "Windows Terminal", SourceTitle = "Windows Terminal", X = 8, Y = 8, Width = 100, Height = 100 } } }).Boxes[0].Title == "PowerShell 7");
+Check("legacy wt rename is preserved across migration", LayoutStore.Normalize(new WindowLayout { Boxes = { new BoxLayout { ComponentKey = "custom:terminal", ComponentType = ComponentType.System, CustomKind = "app", AppId = "wt", Title = "My Custom Title", SourceTitle = "Windows Terminal", X = 8, Y = 8, Width = 100, Height = 100 } } }).Boxes[0].Title == "My Custom Title");
 var legacyProfile = new WindowLayout
 {
     Boxes =
