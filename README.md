@@ -8,9 +8,13 @@ Data comes **only from [LibreHardwareMonitor](https://github.com/LibreHardwareMo
 
 ## Screenshot
 
-<picture>
-  <img alt="SystemInfo showing CPU, GPU, memory, storage, network, processes and a PowerShell box" src="docs/screenshot.png" width="880">
-</picture>
+**Main window** (chrome visible, always-on-top):
+
+<img alt="SystemInfo main window: CPU, GPU, memory, storage, network, processes and an embedded PowerShell box" src="docs/screenshot.png" width="880">
+
+**With `Hide Background` enabled** (window chrome appears only on hover; boxes sit on the desktop):
+
+<img alt="SystemInfo with Hide Background: the same boxes floating over the desktop with no window chrome" src="docs/screenshot-hidden.png" width="880">
 
 ## Features
 
