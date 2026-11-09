@@ -1,5 +1,7 @@
 # SystemInfo
 
+<img align="right" src="docs/icon.png" alt="SystemInfo icon" width="96">
+
 SystemInfo is a lightweight, always-on desktop hardware monitor for Windows: a frameless, always-on-top widget you arrange into boxes, one per component instance, with live sensor values, color-coded bars and per-sensor history graphs. It was built from scratch because the hardware-monitor gadget that shipped with Windows 7 was abandoned along with the sidebar platform, leaving no maintained desktop equivalent.
 
 Data comes **only from [LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor)** (`LibreHardwareMonitorLib`, the maintained successor to OpenHardwareMonitor). Every row you see is a live LHM sensor — no built-in or synthetic sections exist.

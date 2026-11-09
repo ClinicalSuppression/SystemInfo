@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] — 2026-11-09
+
+### Added
+- **Application icon:** new `Assets/SystemInfo.ico` (SI monogram over an teal→green equalizer strip on a rounded dark badge), multi-resolution 16/24/32/48/64/128/256. Generator is committed at `scripts/icon/generate_icon.py` (Pillow + numpy). Also added `docs/icon.png` master.
+
+### Fixed
+- **Tray icon shipped incorrectly:** installed builds showed the generic Windows gear in the tray because `SystemInfo.ico` was referenced only at compile time. The `.ico` is now copied next to the app (`Content` + `CopyToOutputDirectory`) so `TrayService` finds it and loads it at runtime.
+
 ## [1.0.0] - 2026-11-09
 
 ### Added
