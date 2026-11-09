@@ -85,13 +85,7 @@ public sealed class ComponentBox : Border
         CornerRadius = new CornerRadius(10);
         Width = layout.Width;
         Height = layout.Height;
-        Effect = new System.Windows.Media.Effects.DropShadowEffect
-        {
-            BlurRadius = 12,
-            ShadowDepth = 2,
-            Opacity = 0.35,
-            Color = System.Windows.Media.Colors.Black,
-        };
+        // No per-box drop shadow: it is the closest thing to a GPU-expense we have, and it doesn't read.
 
         var dock = new DockPanel();
         var header = new Border
@@ -774,14 +768,20 @@ public sealed class ComponentBox : Border
             RefreshTerminalOverlay();
             return;
         }
-        _rows.Children.Clear();
+        // Custom (processes/power/app) boxes: rebuild on every frame — they're cheap and rarely change.
         if (!string.IsNullOrEmpty(Layout.CustomKind))
         {
+            _rows.Children.Clear();
             if (_graphCanvas is not null) _graphCanvas.Visibility = Visibility.Collapsed;
             if (_legendPanel is not null) _legendPanel.Visibility = Visibility.Collapsed;
             UpdateCustomRows(fontSize, barHeight);
             return;
         }
+        // Sensor boxes: layout is usually stable between refreshes; reuse rows in-place.
+        bool stable = _rows.Children.Count == Layout.SensorIds.Count
+                      && _rowCache.Count == Layout.SensorIds.Count
+                      && Layout.SensorIds.All(id => _rowCache.ContainsKey(id));
+        if (!stable) _rows.Children.Clear();
         // No default "main" graphs: header graph is removed. Graphs appear only per-sensor,
         // directly above the sensor row, and only when that sensor's Graph mode is on.
         if (_graphCanvas is not null) { _graphCanvas.Visibility = Visibility.Collapsed; _graphCanvas.Children.Clear(); }
@@ -852,7 +852,7 @@ public sealed class ComponentBox : Border
             if (_rowCache.TryGetValue(id, out var cached) && cached.KeyArgs == keyArgs)
             {
                 cached.UpdateFrom(v, h, Layout.NetworkSpeedUnit);
-                _rows.Children.Add(cached);
+                if (!stable) _rows.Children.Add(cached);
             }
             else
             {
@@ -885,8 +885,9 @@ public sealed class ComponentBox : Border
             foreach (var p in top)
             {
                 double heatPct = p.HeatPct;
-                var heat = ThemeService.HeatBrush(heatPct);
-                heat.Opacity = 0.35;
+                // Cloned so the shared cache brush stays unedited (and opaque).
+                var heat = new WpfSolidColorBrush(ThemeService.HeatBrush(heatPct).Color) { Opacity = 0.35 };
+                heat.Freeze();
                 var outer = new Border { Background = heat, BorderThickness = new Thickness(0), CornerRadius = new CornerRadius(3), Margin = new Thickness(0, 0.5, 0, 0.5), Width = Math.Max(200, Layout.Width - 16) };
                 var row = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, Margin = new Thickness(4, 1, 4, 1) };
                 row.Children.Add(new TextBlock { Text = p.Name, FontFamily = new WpfFontFamily("Segoe UI"), FontSize = fontSize, Foreground = B("TextPrimaryBrush"), TextTrimming = TextTrimming.CharacterEllipsis, Width = 150, VerticalAlignment = WpfVerticalAlignment.Center });
@@ -1249,11 +1250,10 @@ public sealed class SensorRow : StackPanel
     {
         if (d is not null && !ScaleHelper.ShouldShowBar(d.Category) && history is not null && history.Values.Count >= 2)
         {
-            var vals = history.Values.ToArray();
-            double max = Math.Max(d.Max, vals.Max());
-            double min = Math.Min(d.Min, vals.Min());
-            if (max <= min) max = min + 1;
-            return ScaleHelper.Normalize(value, min, max);
+            double mx = d.Max, mn = d.Min;
+            foreach (double x in history.Values) { if (x > mx) mx = x; if (x < mn) mn = x; }
+            if (mx <= mn) mx = mn + 1;
+            return ScaleHelper.Normalize(value, mn, mx);
         }
         return d is null ? 0 : ScaleHelper.Normalize(value, d.Min, Math.Max(d.Max, value ?? 0));
     }
@@ -1369,7 +1369,9 @@ public static class ProcessHelper
 {
     private static readonly Dictionary<int, TimeSpan> _lastCpu = new();
     private static readonly Dictionary<int, Queue<double>> _cpuHist = new();
+    private static readonly Dictionary<int, double> _cpuSum = new();
     private static readonly Queue<int> _topHistory = new();
+    private static readonly Dictionary<int, int> _topCount = new();
     private static DateTime _lastTime = DateTime.UtcNow;
     private static readonly object _lock = new();
     private static readonly int _procs = Environment.ProcessorCount;
@@ -1398,9 +1400,11 @@ public static class ProcessHelper
                         if (delta >= 0) cpuPct = delta / elapsed / Math.Max(1, _procs) * 100.0;
                     }
                     _lastCpu[p.Id] = cpu;
-                    if (!_cpuHist.TryGetValue(p.Id, out var q)) { q = new Queue<double>(); _cpuHist[p.Id] = q; }
+                    if (!_cpuHist.TryGetValue(p.Id, out var q)) { q = new Queue<double>(); _cpuHist[p.Id] = q; _cpuSum[p.Id] = 0; }
+                    double sum = _cpuSum[p.Id] + cpuPct;
                     q.Enqueue(cpuPct);
-                    while (q.Count > HeatWindow) q.Dequeue();
+                    if (q.Count > HeatWindow) sum -= q.Dequeue();
+                    _cpuSum[p.Id] = sum;
                     long mb;
                     try { mb = p.WorkingSet64 / 1024 / 1024; } catch { mb = 0; }
                     int th;
@@ -1410,26 +1414,35 @@ public static class ProcessHelper
                 }
                 catch { try { p.Dispose(); } catch { } }
             }
-            foreach (int dead in _lastCpu.Keys.Where(id => !seen.Contains(id)).ToList()) { _lastCpu.Remove(dead); _cpuHist.Remove(dead); }
-            for (int i = _topHistory.Count - 1; i >= 0; i--) { /* keep PIDs even if dead — they age out after 60s */ }
+            foreach (int dead in _lastCpu.Keys.Where(id => !seen.Contains(id)).ToList()) { _lastCpu.Remove(dead); _cpuHist.Remove(dead); _cpuSum.Remove(dead); }
             if (raw.Count > 0)
             {
                 int topPid = raw.OrderByDescending(x => x.CpuPercent).First().Pid;
                 _topHistory.Enqueue(topPid);
-                while (_topHistory.Count > HeatWindow) _topHistory.Dequeue();
+                if (!_topCount.TryGetValue(topPid, out int cnt)) cnt = 0;
+                _topCount[topPid] = cnt + 1;
+                while (_topHistory.Count > HeatWindow)
+                {
+                    int old = _topHistory.Dequeue();
+                    if (_topCount.TryGetValue(old, out int oc))
+                    {
+                        if (oc <= 1) _topCount.Remove(old);
+                        else _topCount[old] = oc - 1;
+                    }
+                }
             }
             _lastTime = now;
             double maxAvg = 0;
             var avgs = new Dictionary<int, double>();
             foreach (var item in raw)
             {
-                double avg = _cpuHist.TryGetValue(item.Pid, out var qq) && qq.Count > 0 ? qq.Average() : item.CpuPercent;
+                double avg = _cpuHist.TryGetValue(item.Pid, out var qq) && qq.Count > 0 ? _cpuSum[item.Pid] / qq.Count : item.CpuPercent;
                 avgs[item.Pid] = avg;
                 maxAvg = Math.Max(maxAvg, avg);
             }
             foreach (var item in raw)
             {
-                double persistence = _topHistory.Count(p => p == item.Pid) / (double)HeatWindow;
+                double persistence = (_topCount.TryGetValue(item.Pid, out int c) ? c : 0) / (double)HeatWindow;
                 double share = maxAvg > 0 ? avgs[item.Pid] / maxAvg : 0;
                 double heat = Math.Clamp(0.6 * persistence + 0.4 * share, 0, 1);
                 list.Add((item.Name, item.CpuPercent, item.RamMB, item.Threads, item.Pid, heat));

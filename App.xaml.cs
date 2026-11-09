@@ -235,8 +235,20 @@ namespace SystemInfo
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "SystemInfo");
                 Directory.CreateDirectory(directory);
+                string path = Path.Combine(directory, "app.log");
+                try
+                {
+                    var fi = new FileInfo(path);
+                    if (fi.Exists && fi.Length > 512 * 1024)
+                    {
+                        string rotated = path + ".1";
+                        try { if (File.Exists(rotated)) File.Delete(rotated); } catch { }
+                        try { File.Move(path, rotated); } catch { }
+                    }
+                }
+                catch { }
                 string line = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {exception}{Environment.NewLine}";
-                File.AppendAllText(Path.Combine(directory, "app.log"), line);
+                File.AppendAllText(path, line);
             }
             catch
             {

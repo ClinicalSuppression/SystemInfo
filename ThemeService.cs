@@ -75,6 +75,8 @@ public static class ThemeService
 
     public static void Apply(string scheme, string mode, bool colorBlindSafe = false)
     {
+        // Theme-colored caches are stale on any palette switch.
+        for (int i = 0; i < HeatCache.Length; i++) HeatCache[i] = null!;
         string key = (scheme ?? "Midnight") + (mode == "Light" ? "Light" : "Dark");
         if (!Definitions.TryGetValue(key, out var def))
             def = Definitions["MidnightDark"];
@@ -161,19 +163,19 @@ public static class ThemeService
         return new SolidColorBrush(Colors.Transparent);
     }
 
+    private static readonly SolidColorBrush[] HeatCache = new SolidColorBrush[101];
     public static SolidColorBrush HeatBrush(double pct01)
     {
-        pct01 = Math.Clamp(pct01, 0, 1);
+        int key = Math.Clamp((int)Math.Round(pct01 * 100), 0, 100);
+        if (HeatCache[key] is { } cached) return cached;
         WpfColor lo = Color(_current.BarOkay);
         WpfColor mid = Color(_current.BarWarn);
         WpfColor hi = Color(_current.BarHot);
-        if (pct01 < 0.5)
-        {
-            double t = pct01 / 0.5;
-            return new SolidColorBrush(Lerp(lo, mid, t));
-        }
-        double t2 = (pct01 - 0.5) / 0.5;
-        return new SolidColorBrush(Lerp(mid, hi, t2));
+        WpfColor c = key < 50 ? Lerp(lo, mid, key / 50.0) : Lerp(mid, hi, (key - 50) / 50.0);
+        var brush = new SolidColorBrush(c);
+        brush.Freeze();
+        HeatCache[key] = brush;
+        return brush;
     }
 
     private static WpfColor Lerp(WpfColor a, WpfColor b, double t)

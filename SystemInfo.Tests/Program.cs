@@ -203,6 +203,18 @@ Check("name already containing Temp unchanged", ScaleHelper.ShortSensorLabel(Des
 Check("null sensor label is empty", ScaleHelper.ShortSensorLabel(null) == "");
 
 Console.WriteLine("WindowLayout.BackgroundImage fields");
+Console.WriteLine("WindowLayout.UpdateIntervalMs");
+var uiClamp = LayoutStore.Normalize(new WindowLayout { UpdateIntervalMs = 1 });
+Check("too-fast interval clamps to 250 ms", uiClamp.UpdateIntervalMs == 250);
+var uiUp = LayoutStore.Normalize(new WindowLayout { UpdateIntervalMs = 99999 });
+Check("very-slow interval clamps to 10000 ms", uiUp.UpdateIntervalMs == 10000);
+var uiDefault = LayoutStore.Normalize(new WindowLayout { });
+Check("default update interval is 1000 ms", uiDefault.UpdateIntervalMs == 1000);
+var uiUi = LayoutStore.Normalize(new WindowLayout { UpdateIntervalMs = 500 });
+Check("500 ms preset round-trips through Normalize", uiUi.UpdateIntervalMs == 500);
+var uiJson = JsonSerializer.Deserialize<WindowLayout>(JsonSerializer.Serialize(new WindowLayout { UpdateIntervalMs = 250 }))!;
+Check("update interval survives serialization round trip", uiJson.UpdateIntervalMs == 250);
+
 var bg1 = new WindowLayout { BackgroundImagePath = "", BackgroundImageOpacity = -5, BackgroundImageSaturation = 999, BackgroundImageBrightness = 999 };
 var bg1n = LayoutStore.Normalize(bg1);
 Check("opacity clamps to 0..100", bg1n.BackgroundImageOpacity == 0);

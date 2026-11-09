@@ -55,6 +55,13 @@
             </Border>
             <Button x:Name="ClearBackgroundImageButton" Content="Clear image" Click="ClearBackgroundImageButton_Click" HorizontalAlignment="Right" Margin="0,0,0,12" />
 
+            <TextBlock FontSize="13" FontWeight="SemiBold" Text="Performance" Margin="0,0,0,8" />
+            <Grid Margin="0,0,0,12">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="90"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <TextBlock FontSize="11" VerticalAlignment="Center" Text="Refresh" />
+                <ComboBox x:Name="UpdateIntervalCombo" Grid.Column="1" />
+            </Grid>
+
             <TextBlock FontSize="13" FontWeight="SemiBold" Text="Appearance" Margin="0,0,0,8" />
             <Grid Margin="0,0,0,6">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="90"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>

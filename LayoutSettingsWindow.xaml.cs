@@ -1,4 +1,5 @@
 using System.IO;
+using System.Linq;
 using System.Windows;
 using OpenFileDialog = Microsoft.Win32.OpenFileDialog;
 
@@ -7,6 +8,14 @@ namespace SystemInfo;
 public partial class LayoutSettingsWindow : Window
 {
     public WindowLayout Result { get; private set; }
+
+    private static readonly (string Display, int Value)[] UpdateIntervalPresets =
+    [
+        ("Normal — 1000 ms", 1000),
+        ("Eco — 2000 ms", 2000),
+        ("Fast — 500 ms", 500),
+        ("Fastest — 250 ms", 250),
+    ];
 
     public LayoutSettingsWindow(WindowLayout current)
     {
@@ -33,6 +42,13 @@ public partial class LayoutSettingsWindow : Window
         BoxesLockedCheck.IsChecked = current.BoxesLocked;
         HideBackgroundCheck.IsChecked = current.HideBackground;
         UpdatesCheck.IsChecked = current.CheckForUpdatesOnStartup;
+        foreach (var kv in UpdateIntervalPresets) UpdateIntervalCombo.Items.Add(kv.Display);
+        if (UpdateIntervalCombo.Items.Count > 0)
+        {
+            var match = UpdateIntervalPresets.FirstOrDefault(kv => kv.Value == current.UpdateIntervalMs);
+            UpdateIntervalCombo.SelectedItem = match.Display;
+            if (UpdateIntervalCombo.SelectedItem is null) UpdateIntervalCombo.SelectedIndex = 0;
+        }
 
         // Background image state: restore UI from persisted values (path may have been cleared by Normalize when unreadable).
         BackgroundImageCheck.IsChecked = !string.IsNullOrWhiteSpace(current.BackgroundImagePath);
@@ -60,6 +76,8 @@ public partial class LayoutSettingsWindow : Window
         Result.BoxesLocked = BoxesLockedCheck.IsChecked == true;
         Result.HideBackground = HideBackgroundCheck.IsChecked == true;
         Result.CheckForUpdatesOnStartup = UpdatesCheck.IsChecked == true;
+        Result.UpdateIntervalMs = UpdateIntervalPresets.FirstOrDefault(kv => kv.Display == UpdateIntervalCombo.SelectedItem as string).Value;
+        if (Result.UpdateIntervalMs < 250) Result.UpdateIntervalMs = 1000;
         Result.BackgroundImagePath = BackgroundImageCheck.IsChecked == true ? (string.IsNullOrWhiteSpace(BackgroundImagePathBox.Text) || BackgroundImagePathBox.Text == "(none)" ? "" : BackgroundImagePathBox.Text) : "";
         Result.BackgroundImageOpacity = (int)Math.Round(BackgroundOpacitySlider.Value);
         Result.BackgroundImageSaturation = (int)Math.Round(BackgroundSaturationSlider.Value);

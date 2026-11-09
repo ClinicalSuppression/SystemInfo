@@ -81,7 +81,6 @@ namespace SystemInfo
         public string ThemeMode { get; set; } = "System"; // System | Light | Dark
         public string ThemeScheme { get; set; } = "Midnight"; // Midnight | Aurora | Ember | Paper
         public string SearchFilter { get; set; } = "";
-        public double TempAlertThreshold { get; set; } = 85;
         public bool ColorBlindSafe { get; set; } = false;
         public bool MinimizeToTray { get; set; } = false;
         public bool StartWithWindows { get; set; } = false;
@@ -95,6 +94,8 @@ namespace SystemInfo
         public int BackgroundImageOpacity { get; set; } = 100;    // 0..100
         public int BackgroundImageSaturation { get; set; } = 100; // 0..100
         public int BackgroundImageBrightness { get; set; } = 100; // 0..100
+        /// <summary>Milliseconds between refreshed frames (CPU/GPU/RAM/Storage/Net/PIDs). 1000 = 1 Hz; 500 = 2 Hz; 250 = 4 Hz.</summary>
+        public int UpdateIntervalMs { get; set; } = 1000;
         public List<BoxLayout> Boxes { get; set; } = [];
     }
 
@@ -174,24 +175,21 @@ namespace SystemInfo
             };
         }
 
+        private static readonly System.Windows.Media.FontFamily _defaultTypefaceFamily = new("Segoe UI");
+        private static readonly System.Windows.Media.Typeface _defaultRegularTypeface = new(_defaultTypefaceFamily, System.Windows.FontStyles.Normal, System.Windows.FontWeights.Normal, System.Windows.FontStretches.Normal);
+        private static readonly System.Windows.Media.Typeface _defaultSemiboldTypeface = new(_defaultTypefaceFamily, System.Windows.FontStyles.Normal, System.Windows.FontWeights.SemiBold, System.Windows.FontStretches.Normal);
         /// <summary>Measure natural text width for a string using the Segoe UI fallback chain.</summary>
         public static double MeasureTextWidth(string text, double fontSize, bool semibold = false)
         {
             if (string.IsNullOrEmpty(text)) return 0;
-            var typeface = new System.Windows.Media.Typeface(
-                new System.Windows.Media.FontFamily("Segoe UI"),
-                System.Windows.FontStyles.Normal,
-                semibold ? System.Windows.FontWeights.SemiBold : System.Windows.FontWeights.Normal,
-                System.Windows.FontStretches.Normal);
-            double pixels = 96.0;
             var ft = new System.Windows.Media.FormattedText(
                 text,
-                CultureInfo.InvariantCulture,
+                System.Globalization.CultureInfo.InvariantCulture,
                 System.Windows.FlowDirection.LeftToRight,
-                typeface,
+                semibold ? _defaultSemiboldTypeface : _defaultRegularTypeface,
                 fontSize,
                 System.Windows.Media.Brushes.Black,
-                pixels);
+                96.0);
             return ft.Width;
         }
 
@@ -320,14 +318,16 @@ namespace SystemInfo
     /// <summary>Ring buffer for one sensor's history (zoomable 48–300).</summary>
     public sealed class SensorHistory
     {
-        private readonly Queue<double> _v = new();
+        private readonly List<double> _ordered = new(48); // oldest..newest; tiny counts
         public int Capacity { get; set; } = 48;
-        public IReadOnlyCollection<double> Values => _v;
+        public int Count => _ordered.Count;
+        public IReadOnlyList<double> Values => _ordered;
+
         public void Push(double? v)
         {
             if (v is null || double.IsNaN(v.Value) || double.IsInfinity(v.Value)) return;
-            _v.Enqueue(v.Value);
-            while (_v.Count > Capacity) _v.Dequeue();
+            if (_ordered.Count >= Capacity) _ordered.RemoveAt(0);
+            _ordered.Add(v.Value);
         }
     }
 }

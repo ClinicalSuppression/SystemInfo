@@ -24,6 +24,7 @@ public partial class MainWindow : Window
     private TrayService? _tray;
     private HwndSource? _hwndSource;
     private DispatcherTimer? _hoverTimer;
+    private DispatcherTimer? _locationSaveTimer;
     private bool _chromeHidden;
     private bool _firstRun;
 
@@ -114,9 +115,15 @@ public partial class MainWindow : Window
                 return;
             }
             SizeChanged += (_, _) => GrowCanvasToFit();
-            LocationChanged += (_, _) => SaveLayout();
+            // Throttle disk writes to once per 250 ms of mouse movement (no user-visible effect).
+            _locationSaveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+            _locationSaveTimer.Tick += (_, _) => { _locationSaveTimer!.Stop(); try { SaveLayout(); } catch { } };
+            LocationChanged += (_, _) =>
+            {
+                if (!_locationSaveTimer.IsEnabled) _locationSaveTimer.Start();
+            };
             _tray = new TrayService(this);
-            _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(_layout.UpdateIntervalMs) };
             _timer.Tick += (_, _) => RefreshAll();
             _timer.Start();
             _hoverTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
@@ -128,6 +135,7 @@ public partial class MainWindow : Window
         {
             _timer?.Stop();
             _hoverTimer?.Stop();
+            _locationSaveTimer?.Stop();
             try { TerminalHost.KillAll(); } catch { }
             try { SaveLayout(); } catch { }
             try { _tray?.Dispose(); } catch { }
@@ -549,6 +557,7 @@ public partial class MainWindow : Window
             SaveLayout();
             ApplyBoxLocks();
             ApplyTheme();
+            if (_timer is not null) _timer.Interval = TimeSpan.FromMilliseconds(_layout.UpdateIntervalMs);
             RefreshAll();
             BuildContextMenu();
         }
