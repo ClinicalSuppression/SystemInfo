@@ -202,6 +202,79 @@ Check("CPU Tctl gains Temp suffix", ScaleHelper.ShortSensorLabel(Desc("Core (Tct
 Check("name already containing Temp unchanged", ScaleHelper.ShortSensorLabel(Desc("Composite Temperature", "Temperature", ComponentType.StorageSsd)) == "Composite Temperature");
 Check("null sensor label is empty", ScaleHelper.ShortSensorLabel(null) == "");
 
+Console.WriteLine("WindowLayout.BackgroundImage fields");
+var bg1 = new WindowLayout { BackgroundImagePath = "", BackgroundImageOpacity = -5, BackgroundImageSaturation = 999, BackgroundImageBrightness = 999 };
+var bg1n = LayoutStore.Normalize(bg1);
+Check("opacity clamps to 0..100", bg1n.BackgroundImageOpacity == 0);
+Check("saturation clamps to 0..100", bg1n.BackgroundImageSaturation == 100);
+Check("brightness clamps to 0..100", bg1n.BackgroundImageBrightness == 100);
+var bg2 = new WindowLayout { BackgroundImagePath = @"Q:\no-such-\t\a\b\c.png" };
+var bg2n = LayoutStore.Normalize(bg2);
+Check("missing image path is cleared by Normalize", bg2n.BackgroundImagePath == "");
+var bgTempImg = Path.Combine(Path.GetTempPath(), $"si_test_exists_{Guid.NewGuid():N}.png");
+File.WriteAllBytes(bgTempImg, new byte[] { 1, 2, 3 });
+try
+{
+    var bg3 = new WindowLayout { BackgroundImagePath = bgTempImg, BackgroundImageOpacity = 42, BackgroundImageSaturation = 37, BackgroundImageBrightness = 73 };
+    var bg3n = LayoutStore.Normalize(bg3);
+    Check("valid image path survives Normalize", bg3n.BackgroundImagePath == bgTempImg);
+    Check("opacity round-trips", bg3n.BackgroundImageOpacity == 42);
+    Check("saturation round-trips", bg3n.BackgroundImageSaturation == 37);
+    Check("brightness round-trips", bg3n.BackgroundImageBrightness == 73);
+}
+finally { try { File.Delete(bgTempImg); } catch { } }
+var bgRound = JsonSerializer.Deserialize<WindowLayout>(JsonSerializer.Serialize(new WindowLayout { BackgroundImagePath = "", BackgroundImageOpacity = 50, BackgroundImageSaturation = 50, BackgroundImageBrightness = 50 }));
+Check("default path round-trips as empty string", bgRound is not null && bgRound.BackgroundImagePath == "");
+
+Console.WriteLine("BackgroundImageService (saturation/brightness math)");
+{
+    // Build a small synthetic PBgra32 image directly from a byte array.
+    int w = 2, h = 2, stride = w * 4;
+    var src = new System.Windows.Media.Imaging.WriteableBitmap(w, h, 96, 96, System.Windows.Media.PixelFormats.Pbgra32, null);
+    byte[] srcPx = new byte[] { 200, 50, 50, 255,   50, 200, 50, 255,   50, 50, 200, 255,   128, 128, 128, 255 };
+    src.WritePixels(new System.Windows.Int32Rect(0, 0, w, h), srcPx, stride, 0);
+    src.Freeze();
+    string tempPng = Path.Combine(Path.GetTempPath(), $"si_test_{Guid.NewGuid():N}.png");
+    try
+    {
+        using (var stm = File.Create(tempPng))
+        {
+            var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+            enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(src));
+            enc.Save(stm);
+        }
+        var outFull = BackgroundImageService.Transform(tempPng, 100, 100);
+        Check("full-saturation transform succeeds", outFull is not null);
+        if (outFull is not null)
+        {
+            byte[] px = new byte[stride * h];
+            outFull.CopyPixels(px, stride, 0);
+            Check("pass-through preserves colours", px[0] == 200 && px[1] == 50 && px[2] == 50);
+            Check("pass-through keeps second colour", px[4] == 50 && px[5] == 200 && px[6] == 50);
+        }
+        var outGray = BackgroundImageService.Transform(tempPng, 0, 100);
+        Check("grayscale transform succeeds", outGray is not null);
+        if (outGray is not null)
+        {
+            byte[] px = new byte[stride * h];
+            outGray.CopyPixels(px, stride, 0);
+            Check("saturated red becomes grey", px[0] == px[1] && px[1] == px[2]);
+            Check("saturated green becomes grey", px[4] == px[5] && px[5] == px[6]);
+            Check("saturated blue becomes grey", px[8] == px[9] && px[9] == px[10]);
+        }
+        var outBlack = BackgroundImageService.Transform(tempPng, 100, 0);
+        Check("zero brightness transform succeeds", outBlack is not null);
+        if (outBlack is not null)
+        {
+            byte[] px = new byte[stride * h];
+            outBlack.CopyPixels(px, stride, 0);
+            Check("zero brightness makes pixels black", px.Take(3).All(b => b == 0));
+        }
+        Check("missing image path returns null", BackgroundImageService.Transform(@"Q:\no\such\file.png", 100, 100) is null);
+    }
+    finally { try { File.Delete(tempPng); } catch { } }
+}
+
 Console.WriteLine("LayoutStore.DeriveAutoTitle (hardware-aware)");
 var comps = new List<(string key, ComponentType type, string name)>
 {

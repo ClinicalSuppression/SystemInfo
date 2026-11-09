@@ -1,4 +1,6 @@
+using System.IO;
 using System.Windows;
+using OpenFileDialog = Microsoft.Win32.OpenFileDialog;
 
 namespace SystemInfo;
 
@@ -31,6 +33,15 @@ public partial class LayoutSettingsWindow : Window
         BoxesLockedCheck.IsChecked = current.BoxesLocked;
         HideBackgroundCheck.IsChecked = current.HideBackground;
         UpdatesCheck.IsChecked = current.CheckForUpdatesOnStartup;
+
+        // Background image state: restore UI from persisted values (path may have been cleared by Normalize when unreadable).
+        BackgroundImageCheck.IsChecked = !string.IsNullOrWhiteSpace(current.BackgroundImagePath);
+        BackgroundImagePathBox.Text = string.IsNullOrWhiteSpace(current.BackgroundImagePath) ? "(none)" : current.BackgroundImagePath;
+        BackgroundOpacitySlider.Value = current.BackgroundImageOpacity;
+        BackgroundSaturationSlider.Value = current.BackgroundImageSaturation;
+        BackgroundBrightnessSlider.Value = current.BackgroundImageBrightness;
+        UpdateOpacityLabel(); UpdateSaturationLabel(); UpdateBrightnessLabel();
+        UpdateBackgroundPreview();
     }
 
     private void OkButton_Click(object sender, RoutedEventArgs e)
@@ -49,7 +60,79 @@ public partial class LayoutSettingsWindow : Window
         Result.BoxesLocked = BoxesLockedCheck.IsChecked == true;
         Result.HideBackground = HideBackgroundCheck.IsChecked == true;
         Result.CheckForUpdatesOnStartup = UpdatesCheck.IsChecked == true;
+        Result.BackgroundImagePath = BackgroundImageCheck.IsChecked == true ? (string.IsNullOrWhiteSpace(BackgroundImagePathBox.Text) || BackgroundImagePathBox.Text == "(none)" ? "" : BackgroundImagePathBox.Text) : "";
+        Result.BackgroundImageOpacity = (int)Math.Round(BackgroundOpacitySlider.Value);
+        Result.BackgroundImageSaturation = (int)Math.Round(BackgroundSaturationSlider.Value);
+        Result.BackgroundImageBrightness = (int)Math.Round(BackgroundBrightnessSlider.Value);
         DialogResult = true;
         Close();
+    }
+
+    // ---------- Background image ----------
+    private void BackgroundImageCheck_Click(object sender, RoutedEventArgs e) => UpdateBackgroundPreview();
+
+    private void BackgroundOpacitySlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        int v = (int)Math.Round(e.NewValue);
+        if (BackgroundOpacityValue is not null) BackgroundOpacityValue.Text = $"{v}%";
+        UpdateBackgroundPreview();
+    }
+    private void BackgroundSaturationSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        int v = (int)Math.Round(e.NewValue);
+        if (BackgroundSaturationValue is not null) BackgroundSaturationValue.Text = $"{v}%";
+        UpdateBackgroundPreview();
+    }
+    private void BackgroundBrightnessSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        int v = (int)Math.Round(e.NewValue);
+        if (BackgroundBrightnessValue is not null) BackgroundBrightnessValue.Text = $"{v}%";
+        UpdateBackgroundPreview();
+    }
+    private void BackgroundImageBrowseButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var dlg = new OpenFileDialog
+            {
+                Title = "Choose a background image",
+                Filter = "Images (*.png;*.jpg;*.jpeg;*.bmp;*.webp)|*.png;*.jpg;*.jpeg;*.bmp;*.webp|All files (*.*)|*.*",
+                FilterIndex = 1,
+                CheckFileExists = true,
+            };
+            if (dlg.ShowDialog(this) == true)
+            {
+                BackgroundImageCheck!.IsChecked = true;
+                BackgroundImagePathBox.Text = dlg.FileName;
+                UpdateBackgroundPreview();
+            }
+        }
+        catch { }
+    }
+    private void ClearBackgroundImageButton_Click(object sender, RoutedEventArgs e)
+    {
+        BackgroundImageCheck!.IsChecked = false;
+        BackgroundImagePathBox.Text = "(none)";
+        UpdateBackgroundPreview();
+    }
+    private void UpdateOpacityLabel() { if (BackgroundOpacityValue is not null) BackgroundOpacityValue.Text = $"{(int)Math.Round(BackgroundOpacitySlider.Value)}%"; }
+    private void UpdateSaturationLabel() { if (BackgroundSaturationValue is not null) BackgroundSaturationValue.Text = $"{(int)Math.Round(BackgroundSaturationSlider.Value)}%"; }
+    private void UpdateBrightnessLabel() { if (BackgroundBrightnessValue is not null) BackgroundBrightnessValue.Text = $"{(int)Math.Round(BackgroundBrightnessSlider.Value)}%"; }
+    private void UpdateBackgroundPreview()
+    {
+        if (BackgroundPreviewImage is null) return;
+        string path = BackgroundImageCheck?.IsChecked == true ? BackgroundImagePathBox.Text : "";
+        if (string.IsNullOrWhiteSpace(path) || path == "(none)" || !File.Exists(path))
+        {
+            BackgroundPreviewImage.Source = null;
+            BackgroundPreviewImage.Opacity = 0.3;
+            return;
+        }
+        int sat = (int)Math.Round(BackgroundSaturationSlider.Value);
+        int bright = (int)Math.Round(BackgroundBrightnessSlider.Value);
+        int opacity = (int)Math.Round(BackgroundOpacitySlider.Value);
+        var wb = BackgroundImageService.Transform(path, sat, bright);
+        BackgroundPreviewImage.Source = wb;
+        BackgroundPreviewImage.Opacity = opacity / 100.0;
     }
 }

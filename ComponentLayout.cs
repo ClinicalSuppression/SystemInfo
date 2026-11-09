@@ -90,6 +90,11 @@ namespace SystemInfo
         public bool HideBackground { get; set; } = true;           // New: checked hide chrome on mouse-out (hover-hide), unchecked never hide chrome
         public bool CheckForUpdatesOnStartup { get; set; } = false; // New: prompt on startup if newer release is available
         public int TitlesMigrationVersion { get; set; } = 0;        // New: 1 = one-time title shortening (first run after upgrade), never rewrite user-renamed titles again
+        // Custom window background image (Settings only). Empty path = disabled.
+        public string BackgroundImagePath { get; set; } = "";
+        public int BackgroundImageOpacity { get; set; } = 100;    // 0..100
+        public int BackgroundImageSaturation { get; set; } = 100; // 0..100
+        public int BackgroundImageBrightness { get; set; } = 100; // 0..100
         public List<BoxLayout> Boxes { get; set; } = [];
     }
 

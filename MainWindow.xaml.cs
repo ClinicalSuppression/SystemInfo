@@ -37,6 +37,7 @@ public partial class MainWindow : Window
         Topmost = _layout.KeepOnTop;
         BuildContextMenu();
         RefreshThumb();
+        ApplyBackgroundImage();
 
         // Headless test harness: if --fit-test/--compact-test was specified, run the action, write results, exit.
         if (App.RunTestAction is not null)
@@ -411,6 +412,7 @@ public partial class MainWindow : Window
                 ChromeBorder.SetResourceReference(Border.BorderBrushProperty, "WindowBorderBrush");
                 ChromeBorder.BorderThickness = new Thickness(1);
                 PatternRect.Visibility = Visibility.Visible;
+                if (BackgroundImageRect is not null) BackgroundImageRect.Visibility = Visibility.Visible;
                 TitleBarBorder.SetResourceReference(Border.BackgroundProperty, "BoxHeaderBackgroundBrush");
                 TitleBarContent.Visibility = Visibility.Visible;
             }
@@ -420,11 +422,45 @@ public partial class MainWindow : Window
                 ChromeBorder.BorderBrush = System.Windows.Media.Brushes.Transparent;
                 ChromeBorder.BorderThickness = new Thickness(1);
                 PatternRect.Visibility = Visibility.Collapsed;
+                if (BackgroundImageRect is not null) BackgroundImageRect.Visibility = Visibility.Collapsed;
                 TitleBarBorder.Background = System.Windows.Media.Brushes.Transparent;
                 TitleBarContent.Visibility = Visibility.Collapsed;
             }
         }
         catch { }
+    }
+
+    /// <summary>Apply (or clear) the custom window background image from the persisted layout.</summary>
+    private void ApplyBackgroundImage()
+    {
+        try
+        {
+            if (BackgroundImageRect is null) return;
+            string path = _layout.BackgroundImagePath ?? "";
+            int opacity = Math.Clamp(_layout.BackgroundImageOpacity, 0, 100);
+            int saturation = Math.Clamp(_layout.BackgroundImageSaturation, 0, 100);
+            int brightness = Math.Clamp(_layout.BackgroundImageBrightness, 0, 100);
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                BackgroundImageRect.Visibility = Visibility.Collapsed;
+                BackgroundImageRect.Fill = null;
+                return;
+            }
+            var brush = BackgroundImageService.BuildBrush(path, saturation, brightness);
+            if (brush is null)
+            {
+                BackgroundImageRect.Visibility = Visibility.Collapsed;
+                BackgroundImageRect.Fill = null;
+                return;
+            }
+            brush.Opacity = opacity / 100.0;
+            BackgroundImageRect.Fill = brush;
+            BackgroundImageRect.Visibility = _chromeHidden ? Visibility.Collapsed : Visibility.Visible;
+        }
+        catch (Exception ex)
+        {
+            try { App.LogError(ex); } catch { }
+        }
     }
 
     public WindowLayout GetLayoutForTray() => _layout;
@@ -468,6 +504,7 @@ public partial class MainWindow : Window
         RefreshAll();
         // Re-bind the chrome to the freshly-registered theme resources (local values would keep the old theme).
         try { ApplyHoverChrome(!_chromeHidden); } catch { }
+        try { ApplyBackgroundImage(); } catch { }
         GrowCanvasToFit();
     }
 

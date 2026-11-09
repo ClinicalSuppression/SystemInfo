@@ -157,6 +157,12 @@ public static class LayoutStore
         if (w.ThemeScheme is not ("Midnight" or "Aurora" or "Ember" or "Paper")) w.ThemeScheme = "Midnight";
         w.SearchFilter ??= "";
         w.TempAlertThreshold = Math.Clamp(w.TempAlertThreshold, 50, 110);
+        w.BackgroundImagePath ??= "";
+        // If the path is set but the file vanished, treat it as disabled (checkbox unchecks itself on reopen).
+        if (!string.IsNullOrWhiteSpace(w.BackgroundImagePath) && !File.Exists(w.BackgroundImagePath)) w.BackgroundImagePath = "";
+        w.BackgroundImageOpacity = Math.Clamp(w.BackgroundImageOpacity, 0, 100);
+        w.BackgroundImageSaturation = Math.Clamp(w.BackgroundImageSaturation, 0, 100);
+        w.BackgroundImageBrightness = Math.Clamp(w.BackgroundImageBrightness, 0, 100);
         foreach (var b in w.Boxes)
         {
             b.X = Math.Max(0, b.X);
