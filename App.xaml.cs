@@ -16,8 +16,10 @@ namespace SystemInfo
         /// <summary>In-memory stress layout used only for --profile --stress runs (never written to disk).</summary>
         internal static WindowLayout? ProfileLayoutOverride { get; set; }
 
-        /// <summary>Test action to run after window becomes visible (for --fit-test, --compact-test).</summary>
+        /// <summary>Test action to run after window becomes visible (for --fit-test, --compact-test, --perf-ms).</summary>
         internal static string? RunTestAction { get; set; }
+        /// <summary>Requested duration for --perf-ms runs.</summary>
+        internal static int PerfDurationMs { get; set; }
 
         /// <summary>One box per hardware component with ALL its LHM sensors, all Graph-enabled — worst-case UI/tree/graph load.</summary>
         private static WindowLayout BuildStressLayout(UnifiedSensorCollector collector)
@@ -100,7 +102,9 @@ namespace SystemInfo
                 var layout = options.Stress ? BuildStressLayout(collector) : LayoutStore.LoadOrDefault();
                 App.ProfileLayoutOverride = layout;
                 if (options.HasTestAction)
-                    App.RunTestAction = options.FitTest ? "fit" : "compact";
+                    App.RunTestAction = options.FitTest ? "fit" : options.CompactTest ? "compact" : "perf";
+                if (options.PerfDurationMs > 0)
+                    App.PerfDurationMs = options.PerfDurationMs;
                 var profileWindow = new MainWindow();   // Loaded will see RunTestAction and exec test before 1s refresh; Kill() terminates the process
                 MainWindow = profileWindow;   // CRITICAL: App.MainWindow must be set for Shutdown() to terminate cleanly
                 profileWindow.WindowState = WindowState.Normal;

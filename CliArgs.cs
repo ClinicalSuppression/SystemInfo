@@ -13,9 +13,10 @@ namespace SystemInfo
         public bool Stress { get; set; }           // --stress: enable all sensors + graphs for max load
         public bool FitTest { get; set; }          // --fit-test: headless Compact boxes verification (writes perf.log)
         public bool CompactTest { get; set; }      // --compact-test: headless Compact window verification (writes perf.log)
+        public int PerfDurationMs { get; set; }    // --perf-ms <n>: headless tick-cost measurement over n milliseconds (writes perf.log)
         public bool HasExportAction => JsonPath is not null || ExportPath is not null;
         public bool HasProfileAction => ProfilePath is not null;
-        public bool HasTestAction => FitTest || CompactTest;
+        public bool HasTestAction => FitTest || CompactTest || PerfDurationMs > 0;   // any headless harness
     }
 
     /// <summary>Pure, testable command-line parser (no side effects).</summary>
@@ -33,6 +34,8 @@ namespace SystemInfo
             "  --stress                     Enable all sensors + graphs (max load); pair with --profile\n" +
             "  --fit-test                   Run Compact boxes headlessly, write result to perf.log, then exit (use with --stress for worst case)\n" +
             "  --compact-test               Run Compact window (gap removal) headlessly, write result to perf.log, then exit\n" +
+            "  --perf-ms <milliseconds>     Measure tick cost for ~milliseconds, sample CPU, working set, handles and GC\n" +
+            "                              collections, then exit (requires --profile for steady-state reporting; or pair with --stress)\n" +
             "  --help                       Show this help\n" +
             "\nWithout a path, the report is saved to Documents\\SystemInfo-Report.json / .txt.\n";
 
@@ -67,6 +70,12 @@ namespace SystemInfo
                     options.FitTest = true;
                 else if (arg.Equals("--compact-test", StringComparison.OrdinalIgnoreCase))
                     options.CompactTest = true;
+                else if (arg.Equals("--perf-ms", StringComparison.OrdinalIgnoreCase))
+                {
+                    string? next = PeekPath(args, ref i);
+                    if (next is not null && int.TryParse(next, out int ms))
+                        options.PerfDurationMs = Math.Max(100, ms);
+                }
                 // Unknown args are ignored (forward-compatible).
             }
             return options;

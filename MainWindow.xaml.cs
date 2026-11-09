@@ -40,7 +40,7 @@ public partial class MainWindow : Window
         RefreshThumb();
         ApplyBackgroundImage();
 
-        // Headless test harness: if --fit-test/--compact-test was specified, run the action, write results, exit.
+        // Headless test harness: if --fit-test / --compact-test / --perf-ms was specified, seed a layout then measure or run the action.
         if (App.RunTestAction is not null)
         {
             InitNativeResize();
@@ -49,22 +49,66 @@ public partial class MainWindow : Window
             ComponentBox.StaticComponents = _collector.Components;
             RebuildBoxes();
             RefreshAll();
-            var logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SystemInfo", "perf.log");
-            var lines = new List<string> { "SystemInfo compact-test", $"action={App.RunTestAction}" };
+            string logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SystemInfo", "perf.log");
+            Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
+            var lines = new List<string> { $"SystemInfo perf - {DateTime.Now:yyyy-MM-dd HH:mm:ss}", $"action={App.RunTestAction}" };
+
+            if (App.RunTestAction == "perf")
+            {
+                // Steady-state perf sampling. Runs in this same dispatcher; writes result and exits.
+                GC.Collect();
+                var start = DateTime.UtcNow;
+                var proc = System.Diagnostics.Process.GetCurrentProcess(); proc.Refresh();
+                long mem0 = proc.WorkingSet64, priv0 = proc.PrivateMemorySize64;
+                int handle0 = proc.HandleCount;
+                int gen0_0 = GC.CollectionCount(0), gen1_0 = GC.CollectionCount(1), gen2_0 = GC.CollectionCount(2);
+                long cpu0 = proc.TotalProcessorTime.Ticks;
+                int samples = 0;
+                var probe = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+                probe.Tick += (_, _) =>
+                {
+                    samples++;
+                    var now = DateTime.UtcNow;
+                    if ((now - start).TotalMilliseconds >= App.PerfDurationMs)
+                    {
+                        probe.Stop();
+                        var end = System.Diagnostics.Process.GetCurrentProcess(); end.Refresh();
+                        double elapsedSeconds = (now - start).TotalSeconds;
+                        double cpuPct = (end.TotalProcessorTime.Ticks - cpu0) / 10000000.0 / Math.Max(1, elapsedSeconds) / Math.Max(1, Environment.ProcessorCount) * 100.0;
+                        lines.Add($"duration_ms={(long)(now - start).TotalMilliseconds}");
+                        lines.Add($"samples={samples}");
+                        lines.Add($"working_set_delta_bytes={end.WorkingSet64 - mem0}");
+                        lines.Add($"working_set_bytes={end.WorkingSet64}");
+                        lines.Add($"private_bytes_delta_bytes={end.PrivateMemorySize64 - priv0}");
+                        lines.Add($"private_bytes={end.PrivateMemorySize64}");
+                        lines.Add($"handle_count_delta={end.HandleCount - handle0}");
+                        lines.Add($"handle_count={end.HandleCount}");
+                        lines.Add($"gen0_collections={GC.CollectionCount(0) - gen0_0}");
+                        lines.Add($"gen1_collections={GC.CollectionCount(1) - gen1_0}");
+                        lines.Add($"gen2_collections={GC.CollectionCount(2) - gen2_0}");
+                        lines.Add($"cpu_percent={cpuPct:0.0}");
+                        lines.Add($"iterations={samples}");
+                        File.WriteAllLines(logPath, lines);
+                        System.Diagnostics.Process.GetCurrentProcess().Kill();
+                    }
+                };
+                probe.Start();
+                return;
+            }
+
             if (App.RunTestAction == "fit")
             {
                 CompactBoxes();
                 lines.Add($"applied=compact boxes; visible={_boxControls.Count}");
-                lines.AddRange(_boxControls.Select(c => $"box={c.Layout.Title} x={c.Layout.X:0} y={c.Layout.Y:0} w={c.Layout.Width:0} h={c.Layout.Height:0}"));
+                foreach (var c in _boxControls) lines.Add($"box={c.Layout.Title} x={c.Layout.X:0.0} y={c.Layout.Y:0.0} w={c.Layout.Width:0.0} h={c.Layout.Height:0.0}");
             }
             else if (App.RunTestAction == "compact")
             {
                 CompactWindow();
-                lines.Add($"applied=compact; window={Width:0}x{Height:0}");
-                lines.AddRange(_boxControls.Select(c => $"box={c.Layout.Title} x={c.Layout.X:0} y={c.Layout.Y:0} w={c.Layout.Width:0} h={c.Layout.Height:0}"));
+                lines.Add($"applied=compact; window={Width:0.0}x{Height:0.0}");
+                foreach (var c in _boxControls) lines.Add($"box={c.Layout.Title} x={c.Layout.X:0.0} y={c.Layout.Y:0.0} w={c.Layout.Width:0.0} h={c.Layout.Height:0.0}");
             }
-            lines.Add($"window={Width:0}x{Height:0}");
-            Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
+            lines.Add($"window={Width:0.0}x{Height:0.0}");
             File.WriteAllLines(logPath, lines);
             System.Diagnostics.Process.GetCurrentProcess().Kill();
         }
@@ -89,31 +133,7 @@ public partial class MainWindow : Window
             RebuildBoxes();
             RefreshAll();
             // Optional release check (opt-out by default)
-            try { if (_layout.CheckForUpdatesOnStartup) ReleaseChecker.CheckForUpdatesOnStartup(); } catch { }
-            // Headless test harness: run fit/compact, write results, exit.
-            if (App.RunTestAction is not null)
-            {
-                var logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SystemInfo", "perf.log");
-                var lines = new List<string> { $"SystemInfo compact-test - {DateTime.Now:yyyy-MM-dd HH:mm:ss}", $"action={App.RunTestAction}" };
-                if (App.RunTestAction == "fit")
-                {
-                    CompactBoxes();
-                    lines.Add($"applied=compact boxes; visible={_boxControls.Count}");
-                    foreach (var c in _boxControls) lines.Add($"box={c.Layout.Title} x={c.Layout.X:0.0} y={c.Layout.Y:0.0} w={c.Layout.Width:0.0} h={c.Layout.Height:0.0}");
-                }
-                else if (App.RunTestAction == "compact")
-                {
-                    CompactWindow();
-                    lines.Add($"applied=compact; window={Width:0.0}x{Height:0.0}");
-                    foreach (var c in _boxControls) lines.Add($"box={c.Layout.Title} x={c.Layout.X:0.0} y={c.Layout.Y:0.0} w={c.Layout.Width:0.0} h={c.Layout.Height:0.0}");
-                }
-                lines.Add($"window={Width:0.0}x{Height:0.0}");
-                Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
-                File.WriteAllLines(logPath, lines);
-                // Terminate immediately to avoid leaking the hidden window/WNDProc into the user's session
-                System.Diagnostics.Process.GetCurrentProcess().Kill();
-                return;
-            }
+            try { if (App.RunTestAction is null && _layout.CheckForUpdatesOnStartup) ReleaseChecker.CheckForUpdatesOnStartup(); } catch { }
             SizeChanged += (_, _) => GrowCanvasToFit();
             // Throttle disk writes to once per 250 ms of mouse movement (no user-visible effect).
             _locationSaveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
