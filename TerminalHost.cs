@@ -77,6 +77,7 @@ internal sealed class TerminalSession
     public HashSet<IntPtr> BeforeWindows { get; set; } = new();
     public string? LastError { get; set; }
     public bool Exited { get; set; }
+    public HashSet<uint>? OwnedPids { get; set; }
 
     public bool IsAlive()
     {
@@ -285,7 +286,7 @@ public static class TerminalHost
         {
             session.PollTicks++;
             if (TryAttachOnce(session, host)) { session.StopPoll(); return; }
-            if (session.PollTicks > 40) // ~10s
+            if (session.PollTicks > 20) // ~5s
             {
                 session.StopPoll();
                 // Fallback: try MainWindowHandle one last time
@@ -294,11 +295,9 @@ public static class TerminalHost
                     session.ChildHwnd = session.Process.MainWindowHandle;
                     if (Attach(session, host)) return;
                 }
-                // Never leave a floating terminal: hide any candidate window and stop the process.
-                HideFloatingWindows(session);
-                try { if (session.Process is not null && !session.Process.HasExited) session.Process.Kill(entireProcessTree: true); } catch { }
-                session.LastError = $"Could not embed {AppHelper.DisplayName(session.AppId)} (no window captured; killed stray window to keep it confined). Press Restart.";
-                try { Log($"Embed timeout {session.AppId}: killed stray window"); } catch { }
+                // Leave the user's terminal running (do not hide/kill it); show the Restart prompt in the overlay.
+                session.LastError = $"Could not embed {AppHelper.DisplayName(session.AppId)} (no window captured after 5s; process left running). Restart from the App menu.";
+                try { Log($"Embed timeout {session.AppId}: leaving {session.AppId} running outside the box"); } catch { }
             }
         };
         timer.Start();
@@ -316,7 +315,7 @@ public static class TerminalHost
             session.ChildHwnd = direct;
             return Attach(session, host);
         }
-        IntPtr found = FindNewTerminalWindow(session.BeforeWindows, session.Process);
+        IntPtr found = FindNewTerminalWindow(session);
         if (found != IntPtr.Zero)
         {
             session.ChildHwnd = found;
@@ -384,7 +383,7 @@ public static class TerminalHost
         uint ownPid = (uint)Environment.ProcessId;
         uint targetPid = session.Process is null ? 0 : (uint)session.Process.Id;
         if (targetPid == 0) return; // no handle to the spawned process: refuse to hide anything
-        HashSet<uint> ancestors = BuildAncestorChain(targetPid);
+        HashSet<uint> owned = BuildOwnershipSet(session);
         try
         {
             Win32.EnumWindows((hwnd, _) =>
@@ -392,9 +391,7 @@ public static class TerminalHost
                 if (session.BeforeWindows.Contains(hwnd)) return true;
                 Win32.GetWindowThreadProcessId(hwnd, out uint pid);
                 if (pid == ownPid) return true;
-                string cls = Win32.GetClassName(hwnd) ?? "";
-                bool ours = pid == targetPid || (ancestors.Contains(pid) && IsConsoleLikeClass(cls));
-                if (ours)
+                if (owned.Contains(pid))
                 {
                     try { Win32.ShowWindow(hwnd, Win32.SW_HIDE); } catch { }
                 }
@@ -404,43 +401,57 @@ public static class TerminalHost
         catch { }
     }
 
-    private static HashSet<uint> BuildAncestorChain(uint targetPid)
+    /// <summary>PIDs we consider "ours" for the embed session: the spawned process itself and its descendants.</summary>
+    private static HashSet<uint> BuildOwnershipSet(TerminalSession session)
     {
-        // Parent chain of the spawned terminal process (bounded depth). The console window is usually
-        // hosted by conhost.exe (direct parent of the shell) or Windows Terminal — both are ancestors
-        // of the process we spawned, never unrelated apps.
-        var chain = new HashSet<uint>();
-        uint cur = targetPid;
-        for (int i = 0; i < 4; i++)
+        // Cache the descendant set on the session instance — compute once, reuse at hide/attach boundaries.
+        if (session.OwnedPids is not null) return session.OwnedPids;
+        uint targetPid = session.Process is null ? 0 : (uint)session.Process.Id;
+        var set = new HashSet<uint>();
+        if (targetPid != 0)
         {
-            if (!TryGetParentPid(cur, out uint parent) || parent == 0 || parent == cur) break;
-            if (parent == 4 /* System */ || parent == 8 /* System Idle */) break;
-            if (chain.Contains(parent)) break;
-            chain.Add(parent);
-            cur = parent;
+            set.Add(targetPid);
+            var descendants = new Queue<uint>();
+            descendants.Enqueue(targetPid);
+            for (int depth = 0; depth < 5 && descendants.Count > 0; depth++)
+            {
+                int n = descendants.Count;
+                for (int i = 0; i < n; i++)
+                {
+                    uint cur = descendants.Dequeue();
+                    foreach (uint child in ToolhelpDescendants(cur))
+                    {
+                        if (set.Add(child)) descendants.Enqueue(child);
+                    }
+                }
+            }
         }
-        return chain;
+        session.OwnedPids = set;
+        return set;
     }
 
-    private static bool TryGetParentPid(uint pid, out uint parent)
+    private static IEnumerable<uint> ToolhelpDescendants(uint pid)
     {
-        parent = 0;
+        IntPtr snap = Win32.CreateToolhelp32Snapshot(Win32.TH32CS_SNAPPROCESS, 0);
+        if (snap == Win32.INVALID_HANDLE_VALUE) yield break;
         try
         {
-            using var mo = new System.Management.ManagementObject($"Win32_Process.Handle='{pid}'");
-            var p = mo["ParentProcessId"];
-            if (p is null) return false;
-            parent = Convert.ToUInt32(p);
-            return true;
+            var entry = new Win32.PROCESSENTRY32();
+            entry.dwSize = (uint)Marshal.SizeOf<Win32.PROCESSENTRY32>();
+            if (!Win32.Process32First(snap, ref entry)) yield break;
+            while (true)
+            {
+                if (entry.th32ParentProcessID == pid && entry.th32ProcessID != pid)
+                    yield return entry.th32ProcessID;
+                entry.dwSize = (uint)Marshal.SizeOf<Win32.PROCESSENTRY32>();
+                if (!Win32.Process32Next(snap, ref entry)) break;
+            }
         }
-        catch { return false; }
+        finally
+        {
+            Win32.CloseHandle(snap);
+        }
     }
-
-    private static bool IsConsoleLikeClass(string cls)
-        => cls.Length > 0 && (cls.Contains("Console", StringComparison.OrdinalIgnoreCase)
-            || cls.Contains("Cascadia", StringComparison.OrdinalIgnoreCase)
-            || cls.Contains("ApplicationFrame", StringComparison.OrdinalIgnoreCase)
-            || cls.Contains("OpenConsole", StringComparison.OrdinalIgnoreCase));
 
     private static HashSet<IntPtr> SnapshotVisibleWindows()
     {
@@ -453,25 +464,21 @@ public static class TerminalHost
         return set;
     }
 
-    private static IntPtr FindNewTerminalWindow(HashSet<IntPtr> before, Process? proc)
+    private static IntPtr FindNewTerminalWindow(TerminalSession session)
     {
         IntPtr found = IntPtr.Zero;
         uint ownPid = (uint)Environment.ProcessId;
-        uint targetPid = proc is null ? 0 : (uint)proc.Id;
-        HashSet<uint> ancestors = targetPid == 0 ? new HashSet<uint>() : BuildAncestorChain(targetPid);
+        uint targetPid = session.Process is null ? 0 : (uint)session.Process.Id;
+        HashSet<uint> owned = targetPid == 0 ? new HashSet<uint>() : BuildOwnershipSet(session);
         Win32.EnumWindows((hwnd, _) =>
         {
             if (found != IntPtr.Zero) return false;
-            if (before.Contains(hwnd)) return true;
+            if (session.BeforeWindows.Contains(hwnd)) return true;
             if (!Win32.IsWindowVisible(hwnd)) return true;
             Win32.GetWindowThreadProcessId(hwnd, out uint pid);
             if (pid == ownPid) return true; // never steal our own window
-            string cls = Win32.GetClassName(hwnd) ?? "";
-            // Window owned by the spawned process itself (direct GUI child, e.g. some consoles)
-            if (targetPid != 0 && pid == targetPid) { found = hwnd; return false; }
-            // Window owned by a console host that is an ancestor of our spawned process
-            // (conhost/OpenConsole as parent of the shell, Windows Terminal as parent of the tab)
-            if (IsConsoleLikeClass(cls) && ancestors.Contains(pid)) { found = hwnd; return false; }
+            // Window owned by the spawned process itself or one of its conhost/descendant children
+            if (owned.Contains(pid)) { found = hwnd; return false; }
             return true;
         }, IntPtr.Zero);
         return found;
@@ -578,6 +585,37 @@ internal static class Win32
 
     [DllImport("user32.dll")]
     public static extern IntPtr SetFocus(IntPtr hWnd);
+
+    public const uint TH32CS_SNAPPROCESS = 0x00000002;
+    public static readonly IntPtr INVALID_HANDLE_VALUE = (IntPtr)(-1);
+    public const int MAX_PATH = 260;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct PROCESSENTRY32
+    {
+        public uint dwSize;
+        public uint cntUsage;
+        public uint th32ProcessID;
+        public IntPtr th32DefaultHeapID;
+        public uint th32ModuleID;
+        public uint cntThreads;
+        public uint th32ParentProcessID;
+        public int pcPriClassBase;
+        public uint dwFlags;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = MAX_PATH)] public string szExeFile;
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern IntPtr CreateToolhelp32Snapshot(uint dwFlags, uint th32ProcessID);
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern bool Process32First(IntPtr hSnapshot, ref PROCESSENTRY32 lppe);
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern bool Process32Next(IntPtr hSnapshot, ref PROCESSENTRY32 lppe);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool CloseHandle(IntPtr hObject);
 }
 
 internal static class TerminalSessionExt

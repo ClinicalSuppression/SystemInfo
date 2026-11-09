@@ -986,6 +986,48 @@ public sealed class ComponentBox : Border
         string presetId = preset.SelectedItem is System.Windows.Controls.ComboBoxItem sel0 ? sel0.Tag?.ToString() ?? "cmd" : "cmd";
         var custom = new System.Windows.Controls.TextBox { Text = AppHelper.PresetIds.Contains(Layout.AppId) ? "" : Layout.AppId, Margin = new Thickness(12, 4, 12, 4), ToolTip = "Full path to terminal .exe only (cmd.exe / powershell.exe / pwsh.exe / putty.exe / wt.exe)" };
         var argsBox = new System.Windows.Controls.TextBox { Text = Layout.AppArgs, Margin = new Thickness(12, 4, 12, 4) };
+        // Last-picked saved sessions are persisted in AppArgs (e.g. -load "Home Server - ProxMox").
+        var savedSessions = new System.Windows.Controls.ComboBox { Margin = new Thickness(12, 4, 12, 4), Visibility = Layout.AppId == "putty" ? Visibility.Visible : Visibility.Collapsed, ToolTip = "PuTTY saved sessions (HKCU:\\SimonTatham\\PuTTY\\Sessions)", Background = B("ButtonBackgroundBrush"), Foreground = B("TextPrimaryBrush") };
+        savedSessions.ItemContainerStyle = new Style(typeof(System.Windows.Controls.ComboBoxItem)) { Setters = { new Setter(System.Windows.Controls.ComboBoxItem.BackgroundProperty, B("DialogBackgroundBrush")), new Setter(System.Windows.Controls.ComboBoxItem.ForegroundProperty, B("TextPrimaryBrush")) } };
+        void PopulateSavedSessions()
+        {
+            if (savedSessions.Items.Count > 0) return;
+            foreach (string name in AppHelper.SavedPuTTYSessions())
+            {
+                var item = new System.Windows.Controls.ComboBoxItem { Content = name, Tag = name, Background = B("DialogBackgroundBrush"), Foreground = B("TextPrimaryBrush") };
+                savedSessions.Items.Add(item);
+            }
+            string cur = argsBox.Text.Trim();
+            string? match = AppHelper.SavedPuTTYSessions().FirstOrDefault(n => cur.Equals($"-load \"{n}\"", StringComparison.OrdinalIgnoreCase));
+            if (match is not null)
+            {
+                foreach (System.Windows.Controls.ComboBoxItem it in savedSessions.Items)
+                    if (string.Equals(it.Tag?.ToString(), match, StringComparison.OrdinalIgnoreCase)) { savedSessions.SelectedItem = it; break; }
+            }
+            else
+            {
+                foreach (System.Windows.Controls.ComboBoxItem it in savedSessions.Items)
+                    if (string.Equals(it.Tag?.ToString(), "Default Settings", StringComparison.OrdinalIgnoreCase)) { savedSessions.SelectedItem = it; break; }
+            }
+        }
+        var puttyLabel = new TextBlock { Text = "Saved PuTTY sessions (pick one to launch):", FontFamily = new WpfFontFamily("Segoe UI"), Foreground = B("TextPrimaryBrush"), Margin = new Thickness(12, 0, 12, 4), Visibility = Layout.AppId == "putty" ? Visibility.Visible : Visibility.Collapsed };
+        if (Layout.AppId == "putty") PopulateSavedSessions();
+        preset.SelectionChanged += (_, _) =>
+        {
+            string curId = (preset.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Tag?.ToString() ?? "";
+            bool isPutty = curId == "putty";
+            savedSessions.Visibility = isPutty ? Visibility.Visible : Visibility.Collapsed;
+            puttyLabel.Visibility = isPutty ? Visibility.Visible : Visibility.Collapsed;
+            if (isPutty) PopulateSavedSessions();
+        };
+        savedSessions.SelectionChanged += (_, _) =>
+        {
+            if (savedSessions.SelectedItem is System.Windows.Controls.ComboBoxItem sel)
+            {
+                string name = sel.Tag?.ToString() ?? "";
+                if (!string.IsNullOrWhiteSpace(name)) argsBox.Text = $"-load \"{name}\"";
+            }
+        };
         var browse = new WpfButton { Content = "Browse terminal .exe…", Margin = new Thickness(12, 4, 12, 8) };
         browse.Click += (_, _) =>
         {
@@ -1002,6 +1044,8 @@ public sealed class ComponentBox : Border
         var panel = new StackPanel { Margin = new Thickness(4) };
         panel.Children.Add(new TextBlock { Text = "Embedded terminal (stays inside this box):", FontFamily = new WpfFontFamily("Segoe UI"), Foreground = B("TextPrimaryBrush"), Margin = new Thickness(12, 10, 12, 4) });
         panel.Children.Add(preset);
+        panel.Children.Add(puttyLabel);
+        panel.Children.Add(savedSessions);
         panel.Children.Add(new TextBlock { Text = "Custom terminal path (terminals only, leave empty for preset):", FontFamily = new WpfFontFamily("Segoe UI"), Foreground = B("TextPrimaryBrush"), Margin = new Thickness(12, 0, 12, 4) });
         panel.Children.Add(custom); panel.Children.Add(browse);
         panel.Children.Add(new TextBlock { Text = "Arguments:", FontFamily = new WpfFontFamily("Segoe UI"), Foreground = B("TextPrimaryBrush"), Margin = new Thickness(12, 0, 12, 4) });
@@ -1514,15 +1558,32 @@ public static class AppHelper
         return IsTerminalExe(appId);
     }
 
+    /// <summary>Return saved PuTTY sessions read from HKCU:\\Software\\SimonTatham\\PuTTY\\Sessions, URL-decoded names.</summary>
+    public static IReadOnlyList<string> SavedPuTTYSessions()
+    {
+        var sessions = new List<string>();
+        try
+        {
+            using var root = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\SimonTatham\PuTTY\Sessions", false);
+            if (root is null) return sessions;
+            foreach (string raw in root.GetSubKeyNames())
+            {
+                string name = Uri.UnescapeDataString(raw);
+                if (!string.IsNullOrWhiteSpace(name)) sessions.Add(name);
+            }
+            sessions.Sort(StringComparer.OrdinalIgnoreCase);
+        }
+        catch { }
+        return sessions;
+    }
+
     public static string? BrowseExe()
     {
         var dlg = new Microsoft.Win32.OpenFileDialog
         {
             Title = "Choose terminal executable (cmd / PowerShell / PuTTY / Windows Terminal)",
             Filter = "Terminal exes (cmd.exe;powershell.exe;pwsh.exe;putty.exe;wt.exe)|cmd.exe;powershell.exe;pwsh.exe;putty.exe;wt.exe|Executables (*.exe)|*.exe",
-            CheckFileExists = true,
         };
-        if (dlg.ShowDialog() == true) return dlg.FileName;
-        return null;
+        return dlg.ShowDialog() == true ? dlg.FileName : null;
     }
 }
