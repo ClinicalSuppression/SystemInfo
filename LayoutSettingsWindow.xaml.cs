@@ -23,7 +23,6 @@ public partial class LayoutSettingsWindow : Window
         ThemeModeCombo.SelectedItem = current.ThemeMode;
         foreach (var s in new[] { "Midnight", "Aurora", "Ember", "Paper" }) ThemeSchemeCombo.Items.Add(s);
         ThemeSchemeCombo.SelectedItem = current.ThemeScheme;
-        TempAlertBox.Text = current.TempAlertThreshold.ToString("0");
         TrayCheck.IsChecked = current.MinimizeToTray;
         StartupCheck.IsChecked = current.StartWithWindows;
         AdminCheck.IsChecked = current.StartAsAdministrator;
@@ -41,7 +40,6 @@ public partial class LayoutSettingsWindow : Window
         Result.GraphScale = Math.Clamp(GraphCombo.SelectedIndex, 0, 4);
         Result.ThemeMode = ThemeModeCombo.SelectedItem?.ToString() ?? "System";
         Result.ThemeScheme = ThemeSchemeCombo.SelectedItem?.ToString() ?? "Midnight";
-        if (double.TryParse(TempAlertBox.Text, out double t)) Result.TempAlertThreshold = Math.Clamp(t, 50, 110);
         Result.MinimizeToTray = TrayCheck.IsChecked == true;
         Result.StartWithWindows = StartupCheck.IsChecked == true;
         Result.StartAsAdministrator = AdminCheck.IsChecked == true;

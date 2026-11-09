@@ -301,8 +301,6 @@ public partial class MainWindow : Window
         miSettings.Click += (_, _) => SettingsButton_Click(this, new RoutedEventArgs());
         var miLhm = new MenuItem { Header = "LHM status (LibreHardwareMonitor)…" };
         miLhm.Click += (_, _) => ShowLhmStatus();
-        var miSaveState = new MenuItem { Header = "Save current state" };
-        miSaveState.Click += (_, _) => { SaveLayout(); ProfileStore.SaveProfile(this, _layout); };
         menu.Items.Add(miLockWin);
         menu.Items.Add(miKeepTop);
         menu.Items.Add(miHideBackground);
@@ -316,7 +314,6 @@ public partial class MainWindow : Window
         menu.Items.Add(miAdd);
         menu.Items.Add(miLayout);
         menu.Items.Add(miProfiles);
-        menu.Items.Add(miSaveState);
         menu.Items.Add(miLhm);
         menu.Items.Add(miSettings);
         ContextMenu = menu;
@@ -407,11 +404,12 @@ public partial class MainWindow : Window
             if (ChromeBorder is null) return;
             if (show)
             {
-                ChromeBorder.Background = (System.Windows.Media.Brush)TryFindResource("WindowBackgroundBrush") ?? ThemeService.Find("WindowBackgroundBrush");
-                ChromeBorder.BorderBrush = (System.Windows.Media.Brush)TryFindResource("WindowBorderBrush") ?? ThemeService.Find("WindowBorderBrush");
+                // Re-bind dynamically so later theme switches flow in (previously a static brush suspended the binding).
+                ChromeBorder.SetResourceReference(Border.BackgroundProperty, "WindowBackgroundBrush");
+                ChromeBorder.SetResourceReference(Border.BorderBrushProperty, "WindowBorderBrush");
                 ChromeBorder.BorderThickness = new Thickness(1);
                 PatternRect.Visibility = Visibility.Visible;
-                TitleBarBorder.Background = (System.Windows.Media.Brush)TryFindResource("BoxHeaderBackgroundBrush") ?? ThemeService.Find("BoxHeaderBackgroundBrush");
+                TitleBarBorder.SetResourceReference(Border.BackgroundProperty, "BoxHeaderBackgroundBrush");
                 TitleBarContent.Visibility = Visibility.Visible;
             }
             else
@@ -434,13 +432,6 @@ public partial class MainWindow : Window
         _layout.ThemeScheme = scheme; _layout.ThemeMode = mode;
         SaveLayout(); ApplyTheme();
         _tray?.RebuildMenu();
-    }
-
-    public void SaveCurrentStateFromTray()
-    {
-        SaveLayout();
-        ProfileStore.SaveProfile(this, _layout);
-        _tray?.ShowBalloon("Current state saved (layout.json + profile).");
     }
 
     public void OpenProfilesFromTray()
@@ -473,6 +464,8 @@ public partial class MainWindow : Window
         Title = "SystemInfo";
         RebuildBoxes();
         RefreshAll();
+        // Re-bind the chrome to the freshly-registered theme resources (local values would keep the old theme).
+        try { ApplyHoverChrome(!_chromeHidden); } catch { }
         GrowCanvasToFit();
     }
 

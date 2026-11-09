@@ -49,11 +49,7 @@
                 <TextBlock FontSize="11" VerticalAlignment="Center" Text="Graphs" />
                 <ComboBox x:Name="GraphCombo" Grid.Column="1" />
             </Grid>
-            <Grid Margin="0,0,0,12">
-                <Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                <TextBlock FontSize="11" VerticalAlignment="Center" Text="Temp alert (°C)" />
-                <TextBox x:Name="TempAlertBox" Grid.Column="1" Padding="4,0,4,0" />
-            </Grid>
+
 
             <TextBlock FontSize="13" FontWeight="SemiBold" Text="About" Margin="0,0,0,8" />
             <TextBlock FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextMutedBrush}" Text="SystemInfo © ClinicalSuppression — distributable under the PolyForm Noncommercial License 1.0.0. Licenses and acknowledgements are listed in LICENSE." Margin="0,0,0,4" />

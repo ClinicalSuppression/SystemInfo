@@ -388,11 +388,6 @@ public sealed class ComponentBox : Border
         foreach (var t in _edgeThumbs) t.Visibility = locked ? Visibility.Collapsed : Visibility.Visible;
     }
 
-    public void SetAlert(bool alerted)
-    {
-        BorderBrush = alerted ? B("BarHotBrush") : B("BoxBorderDimBrush");
-    }
-
     public void CopyAsImage()
     {
         try
@@ -808,7 +803,6 @@ public sealed class ComponentBox : Border
             nameW = Math.Max(60, inner - valueW - 12 - minBar);
         }
         double barWidth = anyBar ? Math.Max(30, inner - nameW - (anyText ? valueW + 6 : 0) - 6) : 0;
-        bool anyAlert = false;
         var keep = new HashSet<string>(StringComparer.Ordinal);
         double boxWidth = inner + 16;
         foreach (string id in Layout.SensorIds)
@@ -820,11 +814,6 @@ public sealed class ComponentBox : Border
             bool showText = ScaleHelper.ModeHasText(mode);
             bool showBar = ScaleHelper.ModeHasBar(mode);
             bool showGraph = ScaleHelper.ModeHasGraph(mode);
-            if (d is not null && v.HasValue)
-            {
-                if (d.Category.Equals("Temperature", StringComparison.OrdinalIgnoreCase) && v.Value > 85) anyAlert = true;
-                if (d.Category.Equals("Load", StringComparison.OrdinalIgnoreCase) && v.Value > 98) anyAlert = true;
-            }
             string keyArgs = SensorRow.KeyOf(showText, showBar, showGraph, fontSize, barHeight, nameW, valueW, barWidth, boxWidth);
             if (_rowCache.TryGetValue(id, out var cached) && cached.KeyArgs == keyArgs)
             {
@@ -845,7 +834,6 @@ public sealed class ComponentBox : Border
             if (_rowCache.TryGetValue(stale, out var staleRow)) staleRow.UnsubscribeRenderingFrame();
             _rowCache.Remove(stale);
         }
-        SetAlert(anyAlert);
     }
 
     private int GetMode(string id, SensorDescriptor? d)

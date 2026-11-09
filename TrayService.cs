@@ -90,7 +90,6 @@ public sealed class TrayService : IDisposable
                 themeMenu.DropDownItems.Add(mi);
             }
         menu.Items.Add(themeMenu);
-        Add("Save current state", (_, _) => _owner.SaveCurrentStateFromTray());
         Add("Profiles", (_, _) => _owner.OpenProfilesFromTray());
         Add("Hide", (_, _) => _owner.HideToTray());
         Add("Exit", (_, _) => _owner.Close());
