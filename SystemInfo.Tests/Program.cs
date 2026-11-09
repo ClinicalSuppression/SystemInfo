@@ -213,6 +213,25 @@ Check("type:storagessd box restores SSD", LayoutStore.AutoTitleFor(new BoxLayout
 Check("plain custom box restores Sensors", LayoutStore.AutoTitleFor(new BoxLayout { ComponentKey = "custom", ComponentType = ComponentType.Cpu }) == "Sensors");
 Check("whitespace SourceTitle falls back", LayoutStore.AutoTitleFor(new BoxLayout { ComponentKey = "type:gpu", ComponentType = ComponentType.Gpu, SourceTitle = "   " }) == "GPU");
 
+Console.WriteLine("LayoutStore.DeriveAutoTitle (hardware-aware)");
+var comps = new List<(string key, ComponentType type, string name)>
+{
+    ("Cpu:AMD Ryzen 7 5700G with Radeon Graphics", ComponentType.Cpu, "AMD Ryzen 7 5700G with Radeon Graphics"),
+    ("GpuAmd:AMD Radeon RX 7800 XT", ComponentType.Gpu, "AMD Radeon RX 7800 XT"),
+    ("Memory:Corsair DDR4-3200", ComponentType.Memory, "Corsair DDR4-3200"),
+    ("Storage:Samsung SSD 970 EVO Plus 1TB", ComponentType.StorageSsd, "Samsung SSD 970 EVO Plus 1TB"),
+    ("Storage:Samsung SSD 860 EVO 500GB ", ComponentType.StorageSsd, "Samsung SSD 860 EVO 500GB "),
+    ("Storage:ST2000DM008-2FR102", ComponentType.StorageHdd, "ST2000DM008-2FR102"),
+};
+Check("type:cpu derives Ryzen 7 5700G", LayoutStore.DeriveAutoTitle(new BoxLayout { ComponentKey = "type:cpu", ComponentType = ComponentType.Cpu, SourceTitle = "Whatever" }, comps) == "Ryzen 7 5700G");
+Check("type:gpu derives RX 7800 XT", LayoutStore.DeriveAutoTitle(new BoxLayout { ComponentKey = "type:gpu", ComponentType = ComponentType.Gpu, SourceTitle = "Whatever" }, comps) == "RX 7800 XT");
+Check("type:storagessd derives first SSD model name", LayoutStore.DeriveAutoTitle(new BoxLayout { ComponentKey = "type:storagessd", ComponentType = ComponentType.StorageSsd, SourceTitle = "Whatever" }, comps) == "Samsung SSD 970 EVO Plus");
+Check("type:storage with only HDDs falls back to hdd short name", LayoutStore.DeriveAutoTitle(new BoxLayout { ComponentKey = "type:storagessd", ComponentType = ComponentType.StorageSsd }, new List<(string key, ComponentType type, string name)> { ("Storage:ST2000DM008-2FR102", ComponentType.StorageHdd, "ST2000DM008-2FR102") }) == "ST2000DM008-2FR102");
+Check("type falls back to label when no hardware is present", LayoutStore.DeriveAutoTitle(new BoxLayout { ComponentKey = "type:psu", SourceTitle = "Whatever" }, comps) == "PSU");
+Check("type:cpu with no hardware catalog falls back to CPU", LayoutStore.DeriveAutoTitle(new BoxLayout { ComponentKey = "type:cpu", SourceTitle = "Whatever" }, new List<(string key, ComponentType type, string name)>()) == "CPU");
+Check("type:memory resolves RAM title from detected DDR", LayoutStore.DeriveAutoTitle(new BoxLayout { ComponentKey = "type:memory", ComponentType = ComponentType.Memory, SourceTitle = "Whatever" }, comps) == ScaleHelper.ShortTitle(ComponentType.Memory, "Corsair DDR4-3200"));
+Check("type key is parsed case-insensitively", LayoutStore.DeriveAutoTitle(new BoxLayout { ComponentKey = "type:MEMORY", SourceTitle = "Whatever" }, comps) == ScaleHelper.ShortTitle(ComponentType.Memory, "Corsair DDR4-3200"));
+
 Console.WriteLine("LayoutStore.DeriveAutoTitle (engine rules, ignore recorded titles)");
 Check("CPU box derives Ryzen 7 5700G regardless of recorded title", LayoutStore.DeriveAutoTitle(new BoxLayout { ComponentKey = "Cpu:AMD Ryzen 7 5700G with Radeon Graphics", ComponentType = ComponentType.Cpu, SourceTitle = "Whatever" }) == "Ryzen 7 5700G");
 Check("GPU box derives RX 7800 XT regardless of recorded title", LayoutStore.DeriveAutoTitle(new BoxLayout { ComponentKey = "GpuAmd:AMD Radeon RX 7800 XT", ComponentType = ComponentType.Gpu, SourceTitle = "Whatever" }) == "RX 7800 XT");

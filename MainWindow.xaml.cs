@@ -44,6 +44,7 @@ public partial class MainWindow : Window
             InitNativeResize();
             _collector = new UnifiedSensorCollector();
             _collector.Open(true);
+            ComponentBox.StaticComponents = _collector.Components;
             RebuildBoxes();
             RefreshAll();
             var logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SystemInfo", "perf.log");
@@ -71,6 +72,7 @@ public partial class MainWindow : Window
             InitNativeResize();
             _collector = new UnifiedSensorCollector();
             _collector.Open(true);
+            ComponentBox.StaticComponents = _collector.Components;
             // First run (no layout on disk): create the stock 8-box layout from this machine's hardware.
             if (_firstRun)
             {

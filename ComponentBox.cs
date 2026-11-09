@@ -30,6 +30,8 @@ namespace SystemInfo;
 public sealed class ComponentBox : Border
 {
     public BoxLayout Layout { get; }
+    /// <summary>Live component catalog (key, type, name). Set by MainWindow at collector open; used to derive intelligent auto titles.</summary>
+    internal static IReadOnlyList<(string key, ComponentType type, string name)>? StaticComponents { get; set; }
     public event Action<ComponentBox>? Moved;
     public event Action<ComponentBox>? Resized;
     public event Action<ComponentBox>? PickSensors;
@@ -606,7 +608,7 @@ public sealed class ComponentBox : Border
         panel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Auto) }); // label
         panel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // textbox
         panel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Auto) }); // buttons
-        var label = new TextBlock { Text = "Box title (empty = auto):", FontFamily = new WpfFontFamily("Segoe UI"), Foreground = B("TextPrimaryBrush"), Margin = new Thickness(12, 8, 12, 2) };
+        var label = new TextBlock { Text = "Box title (empty = automatic title):", FontFamily = new WpfFontFamily("Segoe UI"), Foreground = B("TextPrimaryBrush"), Margin = new Thickness(12, 8, 12, 2) };
         Grid.SetRow(label, 0); panel.Children.Add(label);
         tb.Margin = new Thickness(12, 0, 12, 0); tb.Padding = new Thickness(6, 4, 6, 4);
         tb.Height = 30; tb.VerticalContentAlignment = System.Windows.VerticalAlignment.Center;
@@ -618,19 +620,12 @@ public sealed class ComponentBox : Border
         win.Content = panel;
         win.Background = B("DialogBackgroundBrush");
         tb.Focus();
-        auto.Click += (_, _) => { tb.Text = LayoutStore.DeriveAutoTitle(Layout); Apply(); };
+        auto.Click += (_, _) => { tb.Text = DeriveAuto(); Apply(); };
+        string DeriveAuto() => LayoutStore.DeriveAutoTitle(Layout, StaticComponents);
         void Apply()
         {
             string value = tb.Text.Trim();
-            if (string.IsNullOrWhiteSpace(value))
-            {
-                // empty: restore the box's creation-time title (exact; works for custom/type/sensor boxes too)
-                Layout.Title = LayoutStore.AutoTitleFor(Layout);
-                _titleText.Text = Layout.Title;
-                LayoutChanged?.Invoke(this);
-                win.Close();
-                return;
-            }
+            if (string.IsNullOrWhiteSpace(value)) value = DeriveAuto();
             Layout.Title = value;
             _titleText.Text = value;
             LayoutChanged?.Invoke(this);

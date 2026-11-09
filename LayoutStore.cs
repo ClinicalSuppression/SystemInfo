@@ -224,10 +224,11 @@ public static class LayoutStore
             string.IsNullOrWhiteSpace(title) ? "x" : title, 12, semibold: true) + 8 /*pad*/ + 58 /*gear*/ + 30 /*eye*/ + 30 /*close*/));
 
     /// <summary>
-    /// Auto-generated title to use when the user clears a box title or presses "Reset to automatic title".
-    /// Straight engine derivation from the box's hardware identity only — recorded titles are ignored.
+    /// Derives the automatic box title from the box's hardware identity using the same engine as stock layout creation.
+    /// Pass <paramref name="components"/> to make type-labelled boxes resolve to the actual hardware name
+    /// (e.g. "type:cpu" → "Ryzen 7 5700G"). Recorded/custom titles are ignored — that is the point of the derivation.
     /// </summary>
-    public static string DeriveAutoTitle(BoxLayout b)
+    public static string DeriveAutoTitle(BoxLayout b, IReadOnlyList<(string key, ComponentType type, string name)>? components = null)
     {
         // Custom boxes: their creation rules, unchanged.
         switch (b.CustomKind)
@@ -238,14 +239,29 @@ public static class LayoutStore
                 string app = AppHelper.DisplayName(b.AppId);
                 return string.IsNullOrWhiteSpace(app) ? "Terminal" : app;
         }
+
         if (b.ComponentKey?.StartsWith("type:", StringComparison.OrdinalIgnoreCase) == true)
         {
-            return (b.ComponentKey[5..].ToLowerInvariant()) switch
+            string kind = b.ComponentKey[5..];
+            if (!Enum.TryParse<ComponentType>(kind, ignoreCase: true, out var parsed)) return "Sensors";
+            if (components is { Count: > 0 })
             {
-                "cpu" => "CPU", "gpu" => "GPU", "memory" => "Memory", "storagessd" => "SSD",
-                "storagehdd" => "HDD", "storage" => "Storage", "motherboard" => "Motherboard",
-                "controller" => "Controller", "psu" => "PSU", "network" => "Network", "battery" => "Battery",
-                _ => "Sensors",
+                bool isStorage = parsed is ComponentType.StorageSsd or ComponentType.StorageHdd or ComponentType.Storage;
+                var match = components.FirstOrDefault(c => c.type == parsed && !string.IsNullOrWhiteSpace(c.name));
+                if (match.name is null && isStorage)
+                    match = components.FirstOrDefault(c => (c.type is ComponentType.StorageSsd or ComponentType.StorageHdd or ComponentType.Storage) && !string.IsNullOrWhiteSpace(c.name));
+                if (match.name is not null) return ScaleHelper.ShortTitle(match.type, match.name);
+            }
+            return parsed switch
+            {
+                ComponentType.Cpu => "CPU",
+                ComponentType.Gpu => "GPU",
+                ComponentType.Memory => "Memory",
+                ComponentType.StorageSsd => "SSD",
+                ComponentType.StorageHdd => "HDD",
+                ComponentType.Network => "Network",
+                ComponentType.Psu => "PSU",
+                _ => parsed.ToString(),
             };
         }
         if (string.Equals(b.ComponentKey, "custom", StringComparison.OrdinalIgnoreCase)) return "Sensors";
