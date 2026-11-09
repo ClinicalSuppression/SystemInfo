@@ -58,6 +58,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GPU memory labels shortened:** `GPU Memory Used/Free/Total/Clock` and `GPU Memory` temperatures now read `VRAM Used/Free/Total/Clock` / `VRAM` in box rows and graph legends.
 - **Menu text trimmed:** the two `Layout` items no longer carry parenthesised explanations — `Compact boxes` / `Compact window`.
 - **Compact window no longer clips box edges:** the window is now sized as content plus the full window-chrome insets (14px horizontally, 54px vertically), so the outermost boxes never sit flush against the window frame.
+- **Empty rename restores the real creation-time title:** boxes remember their creation-time title (`SourceTitle`), so clearing the title field now restores the exact original title — `Ryzen 7 5700G`, `Top Processes`, `Windows PowerShell`, `CPU` — instead of a lossy approximation. Legacy layouts fall back to the previous derivation.
+- **Restart no longer re-widens manually-narrowed boxes** to fit their title. The title-width clamp now applies only when a stock layout is built/reset; load-time `Normalize` keeps your sizes. Width and height minimums lowered from 200×90 to **60×60**, so boxes can be sized as small as you like.
+- **Sensor rows renamed for clarity:** `CPU Core #N` → `Core N`; temperature sensors whose names don't say so gain a `Temp` suffix (`GPU Core` → `GPU Core Temp`, `VRAM Temp`, `GPU Hot Spot Temp`); power rails named `Package` are now plain `Power` (CPU Package → `Power`, GPU Package → `Power`).
 
 
 ### Planned

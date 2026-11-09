@@ -37,7 +37,7 @@ namespace SystemInfo
                 }
                 stress.Boxes.Add(new BoxLayout
                 {
-                    ComponentKey = key, ComponentType = type, Title = name,
+                    ComponentKey = key, ComponentType = type, Title = name, SourceTitle = name,
                     X = 8, Y = y, Width = 640, Height = 400,
                     SensorIds = sensorIds, GraphSensorIds = sensorIds.ToList(), SensorModes = modes, CombineGraphs = true,
                 });

@@ -161,8 +161,8 @@ public static class LayoutStore
         {
             b.X = Math.Max(0, b.X);
             b.Y = Math.Max(0, b.Y);
-            b.Width = Math.Clamp(b.Width, 200, 2000);
-            b.Height = Math.Clamp(b.Height, 90, 2000);
+            b.Width = Math.Clamp(b.Width, 60, 2000);
+            b.Height = Math.Clamp(b.Height, 60, 2000);
             b.SensorIds ??= [];
             b.GraphSensorIds ??= [];
             b.GraphSeriesColors ??= new Dictionary<string, int>(StringComparer.Ordinal);
@@ -207,12 +207,8 @@ public static class LayoutStore
             }
             w.TitlesMigrationVersion = 1;
         }
-        // Clamp width so the title is always readable (except for App/Terminal boxes, which the user owns).
-        foreach (var b in w.Boxes)
-        {
-            if (b.CustomKind == "app") continue;
-            b.Width = Math.Max(b.Width, TitleWidthFor(b.Title));
-        }
+        // The title-width clamp lives only in box creation (stock layout), never on load:
+        // a user may manually size boxes smaller than the full title.
         return w;
     }
 
@@ -220,6 +216,40 @@ public static class LayoutStore
     private static double TitleWidthFor(string? title)
         => Math.Min(500, Math.Ceiling(ScaleHelper.MeasureTextWidth(
             string.IsNullOrWhiteSpace(title) ? "x" : title, 12, semibold: true) + 8 /*pad*/ + 58 /*gear*/ + 30 /*eye*/ + 30 /*close*/));
+
+    /// <summary>
+    /// Auto-generated title to use when the user clears a box title.
+    /// Prefers the title recorded at box creation; falls back to sensible defaults for legacy layouts.
+    /// </summary>
+    public static string AutoTitleFor(BoxLayout b)
+    {
+        if (!string.IsNullOrWhiteSpace(b.SourceTitle)) return b.SourceTitle.Trim();
+
+        // Legacy boxes that predate SourceTitle: best-effort per box kind.
+        switch (b.CustomKind)
+        {
+            case "processes": return "Top Processes";
+            case "power": return "Power";
+            case "app":
+                string app = AppHelper.DisplayName(b.AppId);
+                return string.IsNullOrWhiteSpace(app) ? "Terminal" : app;
+        }
+        if (b.ComponentKey?.StartsWith("type:", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            return (b.ComponentKey[5..].ToLowerInvariant()) switch
+            {
+                "cpu" => "CPU", "gpu" => "GPU", "memory" => "Memory", "storagessd" => "SSD",
+                "storagehdd" => "HDD", "storage" => "Storage", "motherboard" => "Motherboard",
+                "controller" => "Controller", "psu" => "PSU", "network" => "Network", "battery" => "Battery",
+                _ => "Sensors",
+            };
+        }
+        if (string.Equals(b.ComponentKey, "custom", StringComparison.OrdinalIgnoreCase)) return "Sensors";
+        // Hardware components were saved as "Type:Name" keys: shorten the embedded name.
+        if (b.ComponentKey is not null && b.ComponentKey.Contains(':'))
+            return ScaleHelper.ShortTitle(b.ComponentType, b.ComponentKey[(b.ComponentKey.IndexOf(':') + 1)..]);
+        return ScaleHelper.ShortTitle(b.ComponentType, b.ComponentKey ?? "Sensors");
+    }
 
     /// <summary>
     /// The stock layout used only on first run (no layout on disk yet) or after "Reset to defaults".
@@ -325,7 +355,9 @@ public static class LayoutStore
         }
         w.Width = Math.Max(1079, Math.Ceiling(x + 4));
         w.Height = Math.Max(586, Math.Ceiling(bottom + 8));
-        return Normalize(w);
+        var built = Normalize(w);
+        foreach (var b in built.Boxes) b.SourceTitle = b.Title;
+        return built;
     }
 
     /// <summary>Sensor set that mirrors the stock boxes (CPU total + alternated cores; GPU load/temp/mem; etc.).</summary>
@@ -461,11 +493,11 @@ public static class LayoutStore
     }
 
     public static BoxLayout CreateProcessesBox(double y)
-        => new() { ComponentKey = "custom:processes", ComponentType = ComponentType.System, Title = "Top Processes", X = 8, Y = y, Width = 320, Height = 260, CustomKind = "processes", ProcessLimit = 10, ProcessSort = "Cpu" };
+        => new() { ComponentKey = "custom:processes", ComponentType = ComponentType.System, Title = "Top Processes", SourceTitle = "Top Processes", X = 8, Y = y, Width = 320, Height = 260, CustomKind = "processes", ProcessLimit = 10, ProcessSort = "Cpu" };
 
     public static BoxLayout CreatePowerBox(double y)
-        => new() { ComponentKey = "custom:power", ComponentType = ComponentType.System, Title = "Power", X = 8, Y = y, Width = 320, Height = 200, CustomKind = "power" };
+        => new() { ComponentKey = "custom:power", ComponentType = ComponentType.System, Title = "Power", SourceTitle = "Power", X = 8, Y = y, Width = 320, Height = 200, CustomKind = "power" };
 
     public static BoxLayout CreateAppBox(double y, string appId = "cmd")
-        => new() { ComponentKey = "custom:terminal", ComponentType = ComponentType.System, Title = "Terminal", X = 8, Y = y, Width = 380, Height = 300, CustomKind = "app", AppId = appId };
+        => new() { ComponentKey = "custom:terminal", ComponentType = ComponentType.System, Title = "Terminal", SourceTitle = "Terminal", X = 8, Y = y, Width = 380, Height = 300, CustomKind = "app", AppId = appId };
 }

@@ -178,7 +178,8 @@ public partial class MainWindow : Window
         miAddSensor.Click += (_, _) =>
         {
             var slot = FindVisibleSlot(320, 210);
-            var nb = new BoxLayout { ComponentKey = "custom", Title = $"Sensors {_layout.Boxes.Count + 1}", X = slot.x, Y = slot.y, Width = 320, Height = 210 };
+            var sensorTitle = $"Sensors {_layout.Boxes.Count + 1}";
+            var nb = new BoxLayout { ComponentKey = "custom", Title = sensorTitle, SourceTitle = sensorTitle, X = slot.x, Y = slot.y, Width = 320, Height = 210 };
             _layout.Boxes.Add(nb);
             SaveLayout(); RebuildBoxes();
             BoardScroll.ScrollToVerticalOffset(Math.Max(0, slot.y - 20));
@@ -231,7 +232,7 @@ public partial class MainWindow : Window
             miType.Click += (_, _) =>
             {
                 var slot = FindVisibleSlot(320, 210);
-                var nb = new BoxLayout { ComponentKey = $"type:{typeName}", ComponentType = t, Title = label, X = slot.x, Y = slot.y, Width = 320, Height = 210 };
+                var nb = new BoxLayout { ComponentKey = $"type:{typeName}", ComponentType = t, Title = label, SourceTitle = label, X = slot.x, Y = slot.y, Width = 320, Height = 210 };
                 _layout.Boxes.Add(nb);
                 SaveLayout(); RebuildBoxes();
                 BoardScroll.ScrollToVerticalOffset(Math.Max(0, slot.y - 20));

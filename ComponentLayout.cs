@@ -38,6 +38,8 @@ namespace SystemInfo
         public string ComponentKey { get; set; } = "";
         public ComponentType ComponentType { get; set; }
         public string Title { get; set; } = "";          // editable, defaults to component name
+        /// <summary>Title this box was created with (persisted). Empty rename restores it; nothing else reads it.</summary>
+        public string SourceTitle { get; set; } = "";
         public double X { get; set; } = 8;
         public double Y { get; set; } = 8;
         public double Width { get; set; } = 300;
@@ -224,14 +226,33 @@ namespace SystemInfo
             return $"{value.Value.ToString(fmt)} {d.Unit}".Trim();
         }
 
-        /// <summary>Short row label for display (e.g. "GPU Memory Used" → "VRAM Used"); other names pass through.</summary>
-        public static string ShortSensorLabel(string? name)
+        /// <summary>
+        /// Short row label for display (e.g. "GPU Memory Used" → "VRAM Used", "CPU Core #1" → "Core 1").
+        /// Underlying descriptor names and sensor IDs are untouched; only the rendered text changes.
+        /// </summary>
+        public static string ShortSensorLabel(SensorDescriptor? d)
         {
-            if (string.IsNullOrWhiteSpace(name)) return name ?? "";
-            const string prefix = "GPU Memory";
-            if (name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                return "VRAM" + name[prefix.Length..];
-            return name;
+            string name = d?.Name ?? "";
+            if (string.IsNullOrWhiteSpace(name)) return name;
+            string s = name.Trim();
+
+            // GPU memory sensors read better as VRAM.
+            const string gpuMem = "GPU Memory";
+            if (s.StartsWith(gpuMem, StringComparison.OrdinalIgnoreCase)) s = "VRAM" + s[gpuMem.Length..];
+
+            // Per-core CPU loads: drop the redundant "CPU Core #" prefix.
+            const string cpuCore = "CPU Core #";
+            if (s.StartsWith(cpuCore, StringComparison.OrdinalIgnoreCase)) s = "Core " + s[cpuCore.Length..];
+
+            string cat = (d?.Category ?? "").ToLowerInvariant();
+
+            // Package power rails: label them plainly as Power.
+            if (cat == "power" && s.Contains("package", StringComparison.OrdinalIgnoreCase)) return "Power";
+
+            // Temperature readings carry "Temp" so they're unambiguous at a glance.
+            if (cat == "temperature" && !s.Contains("temp", StringComparison.OrdinalIgnoreCase)) s += " Temp";
+
+            return s;
         }
 
         /// <summary>

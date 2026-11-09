@@ -449,7 +449,7 @@ public sealed class ComponentBox : Border
             if (ScaleHelper.ModeHasBar(mode)) anyBar = true;
             if (ScaleHelper.ModeHasGraph(mode)) anyGraph = true;
 
-            string name = ScaleHelper.ShortSensorLabel(d?.Name) is { Length: > 0 } shortName ? shortName : id;
+            string name = ScaleHelper.ShortSensorLabel(d) is { Length: > 0 } shortName ? shortName : id;
             double nameW = ScaleHelper.MeasureTextWidth(name, fontSize) + 8;
             nameMax = Math.Max(nameMax, nameW);
 
@@ -612,8 +612,8 @@ public sealed class ComponentBox : Border
             string value = tb.Text.Trim();
             if (string.IsNullOrWhiteSpace(value))
             {
-                // empty: revert to auto-generated intelligent title
-                Layout.Title = ScaleHelper.ShortTitle(Layout.ComponentType, Layout.ComponentKey.Contains(':') ? Layout.ComponentKey.Substring(Layout.ComponentKey.IndexOf(':') + 1) : Layout.ComponentKey);
+                // empty: restore the box's creation-time title (exact; works for custom/type/sensor boxes too)
+                Layout.Title = LayoutStore.AutoTitleFor(Layout);
                 _titleText.Text = Layout.Title;
                 LayoutChanged?.Invoke(this);
                 win.Close();
@@ -640,29 +640,29 @@ public sealed class ComponentBox : Border
         double canvasH = Math.Max(90, _canvasParent.ActualHeight);
         if (dir.Contains("E"))
         {
-            double newW = Math.Clamp(w + dx, 200, Math.Min(2000, canvasW - x));
+            double newW = Math.Clamp(w + dx, 60, Math.Min(2000, canvasW - x));
             newW = SnapResize(newW, isX: true);
-            w = Math.Clamp(newW, 200, Math.Min(2000, canvasW - x));
+            w = Math.Clamp(newW, 60, Math.Min(2000, canvasW - x));
         }
         if (dir.Contains("W"))
         {
-            double newX = Math.Clamp(x + dx, 0, right - 200);
+            double newX = Math.Clamp(x + dx, 0, right - 60);
             newX = SnapLeadEdge(newX, isX: true, size: right - newX);
             double newW = right - newX;
-            if (newW >= 200 && newW <= 2000) { x = newX; w = newW; }
+            if (newW >= 60 && newW <= 2000) { x = newX; w = newW; }
         }
         if (dir.Contains("S"))
         {
-            double newH = Math.Clamp(h + dy, 90, Math.Min(2000, canvasH - y));
+            double newH = Math.Clamp(h + dy, 60, Math.Min(2000, canvasH - y));
             newH = SnapResize(newH, isX: false);
-            h = Math.Clamp(newH, 90, Math.Min(2000, canvasH - y));
+            h = Math.Clamp(newH, 60, Math.Min(2000, canvasH - y));
         }
         if (dir.Contains("N"))
         {
-            double newY = Math.Clamp(y + dy, 0, bottom - 90);
+            double newY = Math.Clamp(y + dy, 0, bottom - 60);
             newY = SnapLeadEdge(newY, isX: false, size: bottom - newY);
             double newH = bottom - newY;
-            if (newH >= 90 && newH <= 2000) { y = newY; h = newH; }
+            if (newH >= 60 && newH <= 2000) { y = newY; h = newH; }
         }
         Layout.X = x; Layout.Y = y; Layout.Width = w; Layout.Height = h;
         Canvas.SetLeft(this, x); Canvas.SetTop(this, y);
@@ -777,7 +777,7 @@ public sealed class ComponentBox : Border
             foreach (string id in Layout.SensorIds)
             {
                 catalog.TryGetValue(id, out SensorDescriptor? d2);
-                string nm = ScaleHelper.ShortSensorLabel(d2?.Name) is { Length: > 0 } sn ? sn : id;
+                string nm = ScaleHelper.ShortSensorLabel(d2) is { Length: > 0 } sn ? sn : id;
                 nameMin = Math.Max(nameMin, ScaleHelper.MeasureTextWidth(nm, fontSize) + 8);
             }
         }
@@ -1053,7 +1053,7 @@ public sealed class ComponentBox : Border
                 var d = catalog[lid];
                 int pal = Layout.GraphSeriesColors != null && Layout.GraphSeriesColors.TryGetValue(lid, out int ci) ? ci : li;
                 var sw = new System.Windows.Controls.Border { Width = 16, Height = 3, Background = GraphBrush(pal), VerticalAlignment = WpfVerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) };
-                var lab = new TextBlock { Text = ScaleHelper.ShortSensorLabel(d.Name), FontFamily = new WpfFontFamily("Segoe UI"), FontSize = 10, Foreground = B("TextMutedBrush"), VerticalAlignment = WpfVerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 0, 10, 0), MaxWidth = 110, ToolTip = $"{d.Name} ({d.Category} {d.Unit})" };
+                var lab = new TextBlock { Text = ScaleHelper.ShortSensorLabel(d), FontFamily = new WpfFontFamily("Segoe UI"), FontSize = 10, Foreground = B("TextMutedBrush"), VerticalAlignment = WpfVerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 0, 10, 0), MaxWidth = 110, ToolTip = $"{d.Name} ({d.Category} {d.Unit})" };
                 var item = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, Margin = new Thickness(0, 0, 6, 4) };
                 item.Children.Add(sw); item.Children.Add(lab);
                 _legendPanel.Children.Add(item);
@@ -1173,7 +1173,7 @@ public sealed class SensorRow : StackPanel
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(showText ? valueW : 0) });
         Children.Add(row);
 
-        string name = ScaleHelper.ShortSensorLabel(d?.Name) is { Length: > 0 } label ? label : id;
+        string name = ScaleHelper.ShortSensorLabel(d) is { Length: > 0 } label ? label : id;
         var nameText = new TextBlock { Text = name, FontFamily = new WpfFontFamily("Segoe UI"), FontSize = fontSize, Foreground = ThemeService.Find("TextPrimaryBrush"), TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = WpfVerticalAlignment.Center };
         Grid.SetColumn(nameText, 0);
         row.Children.Add(nameText);

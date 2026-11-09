@@ -177,18 +177,54 @@ Check("stock includes an embedded PowerShell terminal", stock.Boxes.Any(b => b.C
 Check("stock includes Top Processes", stock.Boxes.Any(b => b.CustomKind == "processes" && b.Title == "Top Processes"));
 Check("stock does not overlap columns", stockCpu.X + stockCpu.Width <= stock.Boxes.First(b => b.ComponentType == ComponentType.Gpu).X);
 Check("stock window matches reference size", stock.Width >= 1079 && stock.Height >= 586);
+Check("stock boxes record their creation-time titles", stock.Boxes.All(b => b.SourceTitle == b.Title && b.SourceTitle.Length > 0));
 Check("stock boxes are all inside the window", stock.Boxes.All(b => b.X >= 0 && b.Y >= 0 && b.Y + b.Height <= stock.Height));
 Check("stock CPU total is graphed", stockCpu.SensorModes[$"lhm:{cpuKey}:Load:CPU Total"] is 5 or 4);
 Check("stock CPU core row is a bar", stockCpu.SensorModes[$"lhm:{cpuKey}:Load:CPU Core #1"] == 3);
 
 Console.WriteLine("ScaleHelper.ShortSensorLabel");
-Check("GPU Memory Used -> VRAM Used", ScaleHelper.ShortSensorLabel("GPU Memory Used") == "VRAM Used");
-Check("GPU Memory Free -> VRAM Free", ScaleHelper.ShortSensorLabel("GPU Memory Free") == "VRAM Free");
-Check("GPU Memory Total -> VRAM Total", ScaleHelper.ShortSensorLabel("GPU Memory Total") == "VRAM Total");
-Check("GPU Memory -> VRAM", ScaleHelper.ShortSensorLabel("GPU Memory") == "VRAM");
-Check("GPU Memory label is case-insensitive", ScaleHelper.ShortSensorLabel("gpu memory clock") == "VRAM clock");
-Check("other sensor labels are unchanged", ScaleHelper.ShortSensorLabel("GPU Core") == "GPU Core" && ScaleHelper.ShortSensorLabel("CPU Total") == "CPU Total");
+static SensorDescriptor Desc(string name, string category, ComponentType type = ComponentType.Gpu) =>
+    new() { Id = name, ComponentKey = name, ComponentName = name, Name = name, Category = category, ComponentType = type };
+Check("GPU Memory Used -> VRAM Used", ScaleHelper.ShortSensorLabel(Desc("GPU Memory Used", "SmallData")) == "VRAM Used");
+Check("GPU Memory Free -> VRAM Free", ScaleHelper.ShortSensorLabel(Desc("GPU Memory Free", "SmallData")) == "VRAM Free");
+Check("GPU Memory Total -> VRAM Total", ScaleHelper.ShortSensorLabel(Desc("GPU Memory Total", "SmallData")) == "VRAM Total");
+Check("GPU Memory temp -> VRAM Temp", ScaleHelper.ShortSensorLabel(Desc("GPU Memory", "Temperature")) == "VRAM Temp");
+Check("GPU Memory label is case-insensitive", ScaleHelper.ShortSensorLabel(Desc("gpu memory clock", "Clock")) == "VRAM clock");
+Check("CPU Core #1 -> Core 1", ScaleHelper.ShortSensorLabel(Desc("CPU Core #1", "Load", ComponentType.Cpu)) == "Core 1");
+Check("CPU Core #16 -> Core 16", ScaleHelper.ShortSensorLabel(Desc("CPU Core #16", "Load", ComponentType.Cpu)) == "Core 16");
+Check("CPU Total unchanged", ScaleHelper.ShortSensorLabel(Desc("CPU Total", "Load", ComponentType.Cpu)) == "CPU Total");
+Check("CPU package power -> Power", ScaleHelper.ShortSensorLabel(Desc("Package", "Power", ComponentType.Cpu)) == "Power");
+Check("GPU package power -> Power", ScaleHelper.ShortSensorLabel(Desc("GPU Package", "Power", ComponentType.Gpu)) == "Power");
+Check("other power rails keep their names", ScaleHelper.ShortSensorLabel(Desc("CPU Cores Power", "Power", ComponentType.Cpu)) == "CPU Cores Power");
+Check("GPU core temp gains Temp suffix", ScaleHelper.ShortSensorLabel(Desc("GPU Core", "Temperature")) == "GPU Core Temp");
+Check("GPU Hot Spot gains Temp suffix", ScaleHelper.ShortSensorLabel(Desc("GPU Hot Spot", "Temperature")) == "GPU Hot Spot Temp");
+Check("CPU Tctl gains Temp suffix", ScaleHelper.ShortSensorLabel(Desc("Core (Tctl/Tdie)", "Temperature", ComponentType.Cpu)) == "Core (Tctl/Tdie) Temp");
+Check("name already containing Temp unchanged", ScaleHelper.ShortSensorLabel(Desc("Composite Temperature", "Temperature", ComponentType.StorageSsd)) == "Composite Temperature");
 Check("null sensor label is empty", ScaleHelper.ShortSensorLabel(null) == "");
+
+Console.WriteLine("LayoutStore.AutoTitleFor (empty rename restores creation-time title)");
+Check("sensor box restores recorded title", LayoutStore.AutoTitleFor(new BoxLayout { ComponentKey = "Cpu:AMD Ryzen 7 5700G with Radeon Graphics", ComponentType = ComponentType.Cpu, SourceTitle = "Ryzen 7 5700G" }) == "Ryzen 7 5700G");
+Check("legacy sensor box falls back to short component name", LayoutStore.AutoTitleFor(new BoxLayout { ComponentKey = "Cpu:AMD Ryzen 7 5700G with Radeon Graphics", ComponentType = ComponentType.Cpu }) == "Ryzen 7 5700G");
+Check("processes box restores Top Processes", LayoutStore.AutoTitleFor(new BoxLayout { ComponentKey = "custom:processes", ComponentType = ComponentType.System, CustomKind = "processes" }) == "Top Processes");
+Check("power box restores Power", LayoutStore.AutoTitleFor(new BoxLayout { ComponentKey = "custom:power", ComponentType = ComponentType.System, CustomKind = "power" }) == "Power");
+Check("terminal box restores its terminal display name", LayoutStore.AutoTitleFor(new BoxLayout { ComponentKey = "custom:terminal", ComponentType = ComponentType.System, CustomKind = "app", AppId = "powershell" }) == "Windows PowerShell");
+Check("type:cpu box restores CPU", LayoutStore.AutoTitleFor(new BoxLayout { ComponentKey = "type:cpu", ComponentType = ComponentType.Cpu }) == "CPU");
+Check("type:storagessd box restores SSD", LayoutStore.AutoTitleFor(new BoxLayout { ComponentKey = "type:storagessd", ComponentType = ComponentType.StorageSsd }) == "SSD");
+Check("plain custom box restores Sensors", LayoutStore.AutoTitleFor(new BoxLayout { ComponentKey = "custom", ComponentType = ComponentType.Cpu }) == "Sensors");
+Check("whitespace SourceTitle falls back", LayoutStore.AutoTitleFor(new BoxLayout { ComponentKey = "type:gpu", ComponentType = ComponentType.Gpu, SourceTitle = "   " }) == "GPU");
+
+Console.WriteLine("LayoutStore.Normalize (manual sizes survive restart)");
+var narrow = new WindowLayout();
+narrow.Boxes.Add(new BoxLayout { ComponentKey = "custom", Title = "Sensors 1", X = 8, Y = 8, Width = 60, Height = 60 });
+var narrowNorm = LayoutStore.Normalize(narrow);
+Check("manually narrowed box keeps its size on load", narrowNorm.Boxes[0].Width == 60 && narrowNorm.Boxes[0].Height == 60);
+var tooNarrow = new WindowLayout();
+tooNarrow.Boxes.Add(new BoxLayout { ComponentKey = "custom", Title = "Sensors 1", X = 8, Y = 8, Width = 12, Height = 12 });
+var tooNarrowNorm = LayoutStore.Normalize(tooNarrow);
+Check("absolute floor is 60 px", tooNarrowNorm.Boxes[0].Width == 60 && tooNarrowNorm.Boxes[0].Height == 60);
+var longTitle = new WindowLayout();
+longTitle.Boxes.Add(new BoxLayout { ComponentKey = "custom", Title = "A Very Long User Title That Would Want Much More Width", X = 8, Y = 8, Width = 120, Height = 100 });
+Check("long user title does not force width on load", LayoutStore.Normalize(longTitle).Boxes[0].Width == 120);
 
 Console.WriteLine("ScaleHelper.IsHigherBetter");
 static bool HB(string name, string cat = "Load", ComponentType type = ComponentType.Cpu)
