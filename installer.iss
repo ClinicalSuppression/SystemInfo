@@ -8,7 +8,7 @@
 [Setup]
 AppId={{7F2E1A4B-9C3D-4E5F-8A6B-2C3D4E5F6A7B}
 AppName=SystemInfo
-AppVersion=1.0
+AppVersion=1.0.0
 AppPublisher=ClinicalSuppression
 ; --- Code Signing (uncomment when cert is available) ---
 ; SignCommand="signtool sign /fd SHA256 /a /f cert.pfx /p password /t http://timestamp.digicert.com"
