@@ -3,8 +3,9 @@ namespace SystemInfo;
 /// <summary>
 /// Removes empty space between boxes without changing the arrangement the user built:
 /// boxes are grouped into columns by their left edge, each column is packed vertically,
-/// then each column is slid left until it meets a box that is actually in its way.
-/// Boxes are never resized, and columns are never merged into a single horizontal line.
+/// then each column is slid into its tightest slot left-to-right. Columns are never merged
+/// into a single horizontal line, boxes are never resized, and any pre-existing overlap
+/// between columns is resolved by sliding the later column right until it clears the earlier one.
 /// </summary>
 public static class LayoutCompactor
 {
@@ -55,8 +56,7 @@ public static class LayoutCompactor
                     dx = Math.Max(dx, p.X + p.Width + Gap - b.X);
                 }
             }
-            // Never push a column right — compaction only removes space.
-            if (dx > 0) dx = 0;
+            // If the existing layout already overlaps a previous column, slide right until it clears.
             foreach (var b in col)
             {
                 b.X = Math.Max(Padding, b.X + dx);

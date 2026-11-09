@@ -302,9 +302,40 @@ Check("compact removes vertical gaps inside a column", gapLayout.Boxes.First(b =
 Check("compact slides a column left into the empty space", gapLayout.Boxes.First(b => b.Title == "B1").X == 212);
 Check("compact keeps rows (top edge) unchanged", gapLayout.Boxes.First(b => b.Title == "B1").Y == 8);
 Check("compact never resizes boxes", gapLayout.Boxes.First(b => b.Title == "A1").Width == 200 && gapLayout.Boxes.First(b => b.Title == "B1").Height == 300);
-var (contentW, contentH) = LayoutCompactor.ContentSize(gapLayout);
+var contentW = LayoutCompactor.ContentSize(gapLayout).width;
+var contentH = LayoutCompactor.ContentSize(gapLayout).height;
 Check("compact content size is the tight box bounds plus padding",
     contentW == gapLayout.Boxes.Max(b => b.X + b.Width) + 8 && contentH == gapLayout.Boxes.Max(b => b.Y + b.Height) + 8);
+
+// The reported bug: a hand-dragged GPU box overlapped the CPU box by 4px and the storage column by 4px.
+var overlapLayout = new WindowLayout();
+foreach (var b in new[]
+{
+    MakeBox("CPU", 8, 8, 201, 371), MakeBox("Ethernet", 8, 383, 201, 152),
+    MakeBox("GPU", 205, 8, 226, 514),
+    MakeBox("Top Processes", 435, 8, 230, 146), MakeBox("SSD 860", 435, 158, 230, 119),
+    MakeBox("SSD 970", 435, 281, 230, 119), MakeBox("SanDisk", 435, 404, 219, 119),
+    MakeBox("PowerShell", 669, 8, 380, 164),
+}) overlapLayout.Boxes.Add(b);
+LayoutCompactor.Compact(overlapLayout);
+Check("compact resolves the pre-existing CPU/GPU overlap", overlapLayout.Boxes.First(b => b.Title == "GPU").X == 213);
+Check("compact pushes the storage column right until clear of the GPU", overlapLayout.Boxes.First(b => b.Title == "SSD 860").X == 443);
+Check("compact pushes the terminal column right until clear of storage", overlapLayout.Boxes.First(b => b.Title == "PowerShell").X == 677);
+static bool PairwiseClear(List<BoxLayout> bs)
+{
+    for (int i = 0; i < bs.Count; i++)
+        for (int j = i + 1; j < bs.Count; j++)
+        {
+            var a = bs[i]; var b = bs[j];
+            bool overlapX = a.X < b.X + b.Width && a.X + a.Width > b.X;
+            bool overlapY = a.Y < b.Y + b.Height && a.Y + a.Height > b.Y;
+            if (overlapX && overlapY) return false;
+        }
+    return true;
+}
+Check("no two visible boxes overlap after compact", PairwiseClear(overlapLayout.Boxes));
+var tightened = LayoutCompactor.ContentSize(overlapLayout);
+Check("window edges match the tightened content (1057x535 + padding)", tightened.width == 1065 && tightened.height == 543);
 
 Console.WriteLine("SensorHistory");
 
