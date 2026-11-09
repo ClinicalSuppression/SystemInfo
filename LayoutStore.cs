@@ -209,6 +209,12 @@ public static class LayoutStore
         }
         // The title-width clamp lives only in box creation (stock layout), never on load:
         // a user may manually size boxes smaller than the full title.
+        //
+        // Migration for layouts saved before SourceTitle existed: the last title the box was
+        // shown is the best available creation-time title, and the value that previously had no
+        // reliable "reset" semantics at all. Never overwrite a recorded SourceTitle.
+        foreach (var b in w.Boxes)
+            if (string.IsNullOrWhiteSpace(b.SourceTitle)) b.SourceTitle = b.Title;
         return w;
     }
 

@@ -225,6 +225,19 @@ Check("absolute floor is 60 px", tooNarrowNorm.Boxes[0].Width == 60 && tooNarrow
 var longTitle = new WindowLayout();
 longTitle.Boxes.Add(new BoxLayout { ComponentKey = "custom", Title = "A Very Long User Title That Would Want Much More Width", X = 8, Y = 8, Width = 120, Height = 100 });
 Check("long user title does not force width on load", LayoutStore.Normalize(longTitle).Boxes[0].Width == 120);
+Check("legacy boxes get SourceTitle stamped from their current title", narrowNorm.Boxes[0].SourceTitle == "Sensors 1" && tooNarrowNorm.Boxes[0].SourceTitle == "Sensors 1" && LayoutStore.Normalize(longTitle).Boxes[0].SourceTitle == longTitle.Boxes[0].Title);
+Check("migration never overwrites a recorded SourceTitle", LayoutStore.Normalize(new WindowLayout { Boxes = { new BoxLayout { ComponentKey = "custom", Title = "My Rename", SourceTitle = "Sensors 1", X = 8, Y = 8, Width = 100, Height = 100 } } }).Boxes[0].SourceTitle == "Sensors 1");
+var legacyProfile = new WindowLayout
+{
+    Boxes =
+    {
+        new BoxLayout { ComponentKey = "Storage:Samsung SSD 860 EVO 500GB ", ComponentType = ComponentType.StorageSsd, Title = "Samsung SSD 860", X = 440, Y = 158, Width = 230, Height = 119 },
+        new BoxLayout { ComponentKey = "Storage:SanDisk Extreme Portable SSD", ComponentType = ComponentType.StorageSsd, Title = "SanDisk Extreme Portable", X = 440, Y = 404, Width = 266, Height = 119 },
+    },
+};
+var legacyLoaded = LayoutStore.Normalize(legacyProfile);
+Check("legacy profile boxes get honoured titles after load", legacyLoaded.Boxes.All(b => b.SourceTitle == b.Title));
+Check("legacy empty rename returns the user's title, not the raw hardware name", LayoutStore.AutoTitleFor(legacyLoaded.Boxes[0]) == "Samsung SSD 860" && LayoutStore.AutoTitleFor(legacyLoaded.Boxes[1]) == "SanDisk Extreme Portable");
 
 Console.WriteLine("ScaleHelper.IsHigherBetter");
 static bool HB(string name, string cat = "Load", ComponentType type = ComponentType.Cpu)
