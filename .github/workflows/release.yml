@@ -39,7 +39,7 @@ jobs:
         run: dotnet run --project ${{ env.TEST_PROJECT }} -c Release --no-build
 
       - name: Publish executable (framework-dependent)
-        run: dotnet publish ${{ env.PROJECT_NAME }}.csproj -c Release -r win-x64 --self-contained false --no-restore -o publish-win-x64 -warnaserror
+        run: dotnet publish ${{ env.PROJECT_NAME }}.csproj -c Release -r win-x64 --self-contained false -o publish-win-x64 -warnaserror
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
