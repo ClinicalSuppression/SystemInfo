@@ -1379,13 +1379,16 @@ public static class ProcessHelper
 
     public static List<(string Name, double CpuPercent, long RamMB, int Threads, int Pid, double HeatPct)> GetTop(int limit, string sort)
     {
-        var list = new List<(string Name, double CpuPercent, long RamMB, int Threads, int Pid, double HeatPct)>();
+        var list = new List<(string Name, double CpuPercent, long RamMB, int Threads, int Pid, double Avg)>();
         DateTime now = DateTime.UtcNow;
+        double maxAvg = 0;
+        bool needRam = string.Equals(sort, "Ram", StringComparison.OrdinalIgnoreCase);
+        bool needThreads = string.Equals(sort, "Threads", StringComparison.OrdinalIgnoreCase);
         lock (_lock)
         {
             double elapsed = Math.Max(0.5, (now - _lastTime).TotalSeconds);
             var seen = new HashSet<int>();
-            var raw = new List<(string Name, double CpuPercent, long RamMB, int Threads, int Pid)>();
+            var raw = new List<(string Name, double CpuPercent, long RamMB, int Threads, int Pid, double Avg)>();
             foreach (var p in Process.GetProcesses())
             {
                 try
@@ -1405,19 +1408,23 @@ public static class ProcessHelper
                     q.Enqueue(cpuPct);
                     if (q.Count > HeatWindow) sum -= q.Dequeue();
                     _cpuSum[p.Id] = sum;
-                    long mb;
-                    try { mb = p.WorkingSet64 / 1024 / 1024; } catch { mb = 0; }
-                    int th;
-                    try { th = p.Threads.Count; } catch { th = 0; }
-                    raw.Add((SafeName(p), cpuPct, mb, th, p.Id));
+                    double avg = sum / q.Count;
+                    long mb = 0;
+                    if (needRam) { try { mb = p.WorkingSet64 / 1024 / 1024; } catch { mb = 0; } }
+                    int th = 0;
+                    if (needThreads) { try { th = p.Threads.Count; } catch { th = 0; } }
+                    raw.Add((SafeName(p), cpuPct, mb, th, p.Id, avg));
                     p.Dispose();
                 }
                 catch { try { p.Dispose(); } catch { } }
             }
             foreach (int dead in _lastCpu.Keys.Where(id => !seen.Contains(id)).ToList()) { _lastCpu.Remove(dead); _cpuHist.Remove(dead); _cpuSum.Remove(dead); }
+
             if (raw.Count > 0)
             {
-                int topPid = raw.OrderByDescending(x => x.CpuPercent).First().Pid;
+                double topPidCpu = double.NegativeInfinity;
+                int topPid = 0;
+                foreach (var r in raw) if (r.Item2 > topPidCpu) { topPidCpu = r.Item2; topPid = r.Item5; }
                 _topHistory.Enqueue(topPid);
                 if (!_topCount.TryGetValue(topPid, out int cnt)) cnt = 0;
                 _topCount[topPid] = cnt + 1;
@@ -1432,29 +1439,34 @@ public static class ProcessHelper
                 }
             }
             _lastTime = now;
-            double maxAvg = 0;
-            var avgs = new Dictionary<int, double>();
+            foreach (var r in raw) if (r.Item6 > maxAvg) maxAvg = r.Item6;
             foreach (var item in raw)
             {
-                double avg = _cpuHist.TryGetValue(item.Pid, out var qq) && qq.Count > 0 ? _cpuSum[item.Pid] / qq.Count : item.CpuPercent;
-                avgs[item.Pid] = avg;
-                maxAvg = Math.Max(maxAvg, avg);
-            }
-            foreach (var item in raw)
-            {
-                double persistence = (_topCount.TryGetValue(item.Pid, out int c) ? c : 0) / (double)HeatWindow;
-                double share = maxAvg > 0 ? avgs[item.Pid] / maxAvg : 0;
-                double heat = Math.Clamp(0.6 * persistence + 0.4 * share, 0, 1);
-                list.Add((item.Name, item.CpuPercent, item.RamMB, item.Threads, item.Pid, heat));
+                list.Add((item.Item1, item.Item2, item.Item3, item.Item4, item.Item5, item.Avg));
             }
         }
-        return sort switch
+        // Sort + take only the few entries that will be shown.
+        // tuple.Item6 = rolling average of this process (used for the heat "share" term).
+        var ordered = sort switch
         {
-            "Ram" => list.OrderByDescending(x => x.RamMB).Take(limit).ToList(),
-            "Name" => list.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase).Take(limit).ToList(),
-            "Threads" => list.OrderByDescending(x => x.Threads).Take(limit).ToList(),
-            _ => list.OrderByDescending(x => x.CpuPercent).Take(limit).ToList(),
+            "Ram" => list.OrderByDescending(x => x.Item3).ToList(),
+            "Name" => list.OrderBy(x => x.Item1, StringComparer.OrdinalIgnoreCase).ToList(),
+            "Threads" => list.OrderByDescending(x => x.Item4).ToList(),
+            _ => list.OrderByDescending(x => x.Item2).ToList(),
         };
+        var result = new List<(string Name, double CpuPercent, long RamMB, int Threads, int Pid, double HeatPct)>(Math.Min(limit, ordered.Count));
+        double shareScale = maxAvg > 0 ? 1.0 / maxAvg : 0;
+        int count = 0;
+        foreach (var item in ordered)
+        {
+            double persistence = _topCount.TryGetValue(item.Item5, out int c) ? c / (double)HeatWindow : 0;
+            double share = item.Item6 > 0 ? item.Item6 * shareScale : 0;
+            double heat = Math.Clamp(0.6 * persistence + 0.4 * share, 0, 1);
+            result.Add((item.Item1, item.Item2, item.Item3, item.Item4, item.Item5, heat));
+            count++;
+            if (count >= limit) break;
+        }
+        return result;
     }
 
     private static string SafeName(Process p)
