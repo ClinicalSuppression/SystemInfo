@@ -43,10 +43,11 @@ The tray menu also includes a "Run as Administrator" toggle — when enabled, th
 - **Graph rendering:** Graphs use a fixed 5-minute window (300 samples). Extreme outliers may compress the scale; this matches LibreHardwareMonitor's own behavior.
 - **Battery sensors:** Battery data may be unstable on some OEMs (Lenovo, Dell) — LHM-known issue, not SystemInfo.
 - **Single-instance guard:** Only one instance runs at a time. Launching a second instance shows a notice and exits.
+- **Storage in the first-run layout:** Drives are only visible to LibreHardwareMonitor when it can enumerate storage hardware (with PawnIO / Administrator). On a first run without elevation the stock layout therefore has no storage boxes; add them later with **+ Add → Sensors**.
 
 ## Use
 
-1. Launch `SystemInfo.exe` (or install via `Output\SystemInfo_Setup_1.0.exe`). On first run you get the stock layout (CPU, GPU, memory/storage, one network adapter, Top Processes and a PowerShell box) sized for the machine it runs on. Boxes are only ever added by you afterwards — via **+ Add** in the right-click menu.
+1. Launch `SystemInfo.exe` (or install via `Output\SystemInfo_Setup_1.0.exe`). On first run you get the stock layout — CPU and one wired network adapter, GPU, Top Processes with up to three storage boxes, and a PowerShell box — sized for the machine it runs on. Boxes are only ever added by you afterwards — via **+ Add** in the right-click menu.
 2. **Right-click** the window for window locks, Keep-on-top, and scaling. **Right-click is also how you keep the window on top or prevent it being moved.** `⚙` opens Display & scaling / locks.
 3. Inside a box, drag the header to move it (it snaps to neighbours with a 4px gap); drag the box's bottom-right thumb to resize.
 4. Click **`＋ Sensors`** on a box to pick exactly which of its LHM sensors to show and which to graph (with combined-graphs toggle per box).
