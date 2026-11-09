@@ -804,9 +804,12 @@ public sealed class ComponentBox : Border
         bool anyText = Layout.SensorIds.Any(id => ScaleHelper.ModeHasText(GetMode(id, catalog.TryGetValue(id, out var dd) ? dd : null)));
         bool anyBar = Layout.SensorIds.Any(id => ScaleHelper.ModeHasBar(GetMode(id, catalog.TryGetValue(id, out var dd2) ? dd2 : null)));
         bool anyGraph = Layout.SensorIds.Any(id => ScaleHelper.ModeHasGraph(GetMode(id, catalog.TryGetValue(id, out var dd3) ? dd3 : null)));
-        // inner is the ACTUAL ScrollViewer viewport (minus _rows margins) so a visible 6px scrollbar can't clip the right edge.
-        double viewport = (_scroll is not null && _scroll.ViewportWidth > 0) ? _scroll.ViewportWidth : (_scroll is not null && _scroll.ActualWidth > 0 ? _scroll.ActualWidth : Layout.Width - 14);
-        double inner = Math.Max(120, viewport - 12);
+        // inner is derived ONLY from the box's logical width plus fixed insets — never from a live
+        // ScrollViewer measurement. The Auto scrollbar appearing/disappearing must not be able to
+        // change row widths on a tick (that was the residual horizontal jitter). A constant
+        // scrollbar reservation is applied instead: a few spare pixels when not needed, exact fit when shown.
+        const double ScrollBarReserve = 17;
+        double inner = Math.Max(120, Math.Floor(Layout.Width) - 14 - 12 - ScrollBarReserve);
         // Compute name width from the ACTUAL longest sensor name in this box — no content clipping allowed.
         double nameMin = 0;
         int maxValLen = 0;
@@ -825,16 +828,16 @@ public sealed class ComponentBox : Border
         }
         _stickyNameW.Add(nameMin);
         _stickyValueW.Add(Math.Max(44, (fontSize + 1) * (maxValLen * 0.58 + 0.5)));
-        double nameW = anyText ? Math.Clamp(_stickyNameW.Value, 60, 260) : 0;
-        double valueW = anyText ? Math.Clamp(_stickyValueW.Value, 44, 160) : 0;
+        double nameW = anyText ? Math.Floor(Math.Clamp(_stickyNameW.Value, 60, 260)) : 0;
+        double valueW = anyText ? Math.Floor(Math.Clamp(_stickyValueW.Value, 44, 160)) : 0;
         // Keep the whole row inside the box at narrow widths (fixes right-side cutoff).
         double minBar = anyBar ? ScaleHelper.BarMinWidth : 0;
         if (inner < nameW + valueW + 12 + minBar)
         {
             // Shrink only the name toward its minimum, never below readable width
-            nameW = Math.Max(60, inner - valueW - 12 - minBar);
+            nameW = Math.Floor(Math.Max(60, inner - valueW - 12 - minBar));
         }
-        double barWidth = anyBar ? Math.Max(30, inner - nameW - (anyText ? valueW + 6 : 0) - 6) : 0;
+        double barWidth = anyBar ? Math.Floor(Math.Max(30, inner - nameW - (anyText ? valueW + 6 : 0) - 6)) : 0;
         var keep = new HashSet<string>(StringComparer.Ordinal);
         double boxWidth = inner + 16;
         foreach (string id in Layout.SensorIds)
