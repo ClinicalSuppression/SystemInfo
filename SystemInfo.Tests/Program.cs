@@ -213,6 +213,17 @@ Check("type:storagessd box restores SSD", LayoutStore.AutoTitleFor(new BoxLayout
 Check("plain custom box restores Sensors", LayoutStore.AutoTitleFor(new BoxLayout { ComponentKey = "custom", ComponentType = ComponentType.Cpu }) == "Sensors");
 Check("whitespace SourceTitle falls back", LayoutStore.AutoTitleFor(new BoxLayout { ComponentKey = "type:gpu", ComponentType = ComponentType.Gpu, SourceTitle = "   " }) == "GPU");
 
+Console.WriteLine("LayoutStore.DeriveAutoTitle (engine rules, ignore recorded titles)");
+Check("CPU box derives Ryzen 7 5700G regardless of recorded title", LayoutStore.DeriveAutoTitle(new BoxLayout { ComponentKey = "Cpu:AMD Ryzen 7 5700G with Radeon Graphics", ComponentType = ComponentType.Cpu, SourceTitle = "Whatever" }) == "Ryzen 7 5700G");
+Check("GPU box derives RX 7800 XT regardless of recorded title", LayoutStore.DeriveAutoTitle(new BoxLayout { ComponentKey = "GpuAmd:AMD Radeon RX 7800 XT", ComponentType = ComponentType.Gpu, SourceTitle = "Whatever" }) == "RX 7800 XT");
+Check("storage box derives the full LHM name, not the shortened title", LayoutStore.DeriveAutoTitle(new BoxLayout { ComponentKey = "Storage:Samsung SSD 860 EVO 500GB ", ComponentType = ComponentType.StorageSsd, SourceTitle = "Samsung SSD 860" }) == "Samsung SSD 860 EVO 500GB");
+Check("SanDisk Extreme derives its raw name", LayoutStore.DeriveAutoTitle(new BoxLayout { ComponentKey = "Storage:SanDisk Extreme Portable SSD", ComponentType = ComponentType.StorageSsd, SourceTitle = "SanDisk Extreme Portable" }) == "SanDisk Extreme Portable SSD");
+Check("type:cpu derives CPU", LayoutStore.DeriveAutoTitle(new BoxLayout { ComponentKey = "type:cpu", ComponentType = ComponentType.Cpu, SourceTitle = "Whatever" }) == "CPU");
+Check("processes box derives Top Processes", LayoutStore.DeriveAutoTitle(new BoxLayout { ComponentKey = "custom:processes", ComponentType = ComponentType.System, CustomKind = "processes", SourceTitle = "Whatever" }) == "Top Processes");
+Check("power box derives Power", LayoutStore.DeriveAutoTitle(new BoxLayout { ComponentKey = "custom:power", ComponentType = ComponentType.System, CustomKind = "power", SourceTitle = "Whatever" }) == "Power");
+Check("terminal box derives its terminal display name", LayoutStore.DeriveAutoTitle(new BoxLayout { ComponentKey = "custom:terminal", ComponentType = ComponentType.System, CustomKind = "app", AppId = "powershell", SourceTitle = "Whatever" }) == "Windows PowerShell");
+Check("plain custom box derives Sensors", LayoutStore.DeriveAutoTitle(new BoxLayout { ComponentKey = "custom", ComponentType = ComponentType.Cpu, SourceTitle = "Whatever" }) == "Sensors");
+
 Console.WriteLine("LayoutStore.Normalize (manual sizes survive restart)");
 var narrow = new WindowLayout();
 narrow.Boxes.Add(new BoxLayout { ComponentKey = "custom", Title = "Sensors 1", X = 8, Y = 8, Width = 60, Height = 60 });

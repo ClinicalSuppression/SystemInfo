@@ -588,25 +588,30 @@ public sealed class ComponentBox : Border
     private void OpenRenameDialog()
     {
         if (_locked) return;
-        var win = new Window { Title = "Rename box", Width = 340, Height = 170, WindowStartupLocation = WindowStartupLocation.CenterOwner, Owner = WpfApplication.Current?.MainWindow, ResizeMode = ResizeMode.NoResize };
+        var win = new Window { Title = "Rename box", Width = 436, Height = 170, WindowStartupLocation = WindowStartupLocation.CenterOwner, Owner = WpfApplication.Current?.MainWindow, ResizeMode = ResizeMode.NoResize };
         var tb = new System.Windows.Controls.TextBox { Text = Layout.Title, Margin = new Thickness(12, 4, 12, 4), FontFamily = new WpfFontFamily("Segoe UI"), HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch, VerticalAlignment = System.Windows.VerticalAlignment.Center };
-        var ok = new WpfButton { Content = "OK", Width = 80, Height = 30, Margin = new Thickness(0, 8, 12, 12), HorizontalAlignment = System.Windows.HorizontalAlignment.Right };
+        var ok = new WpfButton { Content = "OK", Width = 80, Height = 30, Margin = new Thickness(8, 0, 0, 0) };
+        var auto = new WpfButton { Content = "Reset to automatic title", Width = 190, Height = 30, HorizontalAlignment = System.Windows.HorizontalAlignment.Left };
         ok.IsDefault = true;
         ok.IsCancel = false;
         var panel = new Grid { Margin = new Thickness(4) };
         panel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         panel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Auto) }); // label
         panel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // textbox
-        panel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Auto) }); // ok
+        panel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Auto) }); // buttons
         var label = new TextBlock { Text = "Box title (empty = auto):", FontFamily = new WpfFontFamily("Segoe UI"), Foreground = B("TextPrimaryBrush"), Margin = new Thickness(12, 8, 12, 2) };
         Grid.SetRow(label, 0); panel.Children.Add(label);
         tb.Margin = new Thickness(12, 0, 12, 0); tb.Padding = new Thickness(6, 4, 6, 4);
         tb.Height = 30; tb.VerticalContentAlignment = System.Windows.VerticalAlignment.Center;
         Grid.SetRow(tb, 1); panel.Children.Add(tb);
-        Grid.SetRow(ok, 2); panel.Children.Add(ok);
+        var buttonRow = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, HorizontalAlignment = System.Windows.HorizontalAlignment.Right, Margin = new Thickness(0, 8, 12, 12) };
+        buttonRow.Children.Add(auto);
+        buttonRow.Children.Add(ok);
+        Grid.SetRow(buttonRow, 2); panel.Children.Add(buttonRow);
         win.Content = panel;
         win.Background = B("DialogBackgroundBrush");
         tb.Focus();
+        auto.Click += (_, _) => { tb.Text = LayoutStore.DeriveAutoTitle(Layout); Apply(); };
         void Apply()
         {
             string value = tb.Text.Trim();

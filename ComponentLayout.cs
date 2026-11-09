@@ -302,12 +302,12 @@ namespace SystemInfo
 
             // Keep only the first 3 words for short titles (e.g. "Ryzen 7 5700G" from "Ryzen 7 5700G with Radeon Graphics").
             var parts = s.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length > 3) s = string.Join(' ', parts[..3]);
             if (type == ComponentType.StorageHdd || type == ComponentType.StorageSsd || type == ComponentType.Storage)
             {
-                // Storage scores already include capacity; keep more words.
+                // Storage names (and their capacity) are informative: keep more words.
                 if (parts.Length > 5) s = string.Join(' ', parts[..5]);
             }
+            else if (parts.Length > 3) s = string.Join(' ', parts[..3]);
             return s.Trim();
         }
     }

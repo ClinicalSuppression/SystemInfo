@@ -224,14 +224,12 @@ public static class LayoutStore
             string.IsNullOrWhiteSpace(title) ? "x" : title, 12, semibold: true) + 8 /*pad*/ + 58 /*gear*/ + 30 /*eye*/ + 30 /*close*/));
 
     /// <summary>
-    /// Auto-generated title to use when the user clears a box title.
-    /// Prefers the title recorded at box creation; falls back to sensible defaults for legacy layouts.
+    /// Auto-generated title to use when the user clears a box title or presses "Reset to automatic title".
+    /// Straight engine derivation from the box's hardware identity only — recorded titles are ignored.
     /// </summary>
-    public static string AutoTitleFor(BoxLayout b)
+    public static string DeriveAutoTitle(BoxLayout b)
     {
-        if (!string.IsNullOrWhiteSpace(b.SourceTitle)) return b.SourceTitle.Trim();
-
-        // Legacy boxes that predate SourceTitle: best-effort per box kind.
+        // Custom boxes: their creation rules, unchanged.
         switch (b.CustomKind)
         {
             case "processes": return "Top Processes";
@@ -255,6 +253,16 @@ public static class LayoutStore
         if (b.ComponentKey is not null && b.ComponentKey.Contains(':'))
             return ScaleHelper.ShortTitle(b.ComponentType, b.ComponentKey[(b.ComponentKey.IndexOf(':') + 1)..]);
         return ScaleHelper.ShortTitle(b.ComponentType, b.ComponentKey ?? "Sensors");
+    }
+
+    /// <summary>
+    /// Title to restore when the user clears a box title.
+    /// Honours the recorded creation title; falls back to engine derivation for boxes without one.
+    /// </summary>
+    public static string AutoTitleFor(BoxLayout b)
+    {
+        if (!string.IsNullOrWhiteSpace(b.SourceTitle)) return b.SourceTitle.Trim();
+        return DeriveAutoTitle(b);
     }
 
     /// <summary>
