@@ -20,6 +20,7 @@ public sealed class UnifiedSensorCollector : IDisposable
     private bool _tried;
     private readonly Dictionary<string, SensorDescriptor> _catalog = new(StringComparer.Ordinal);
     private readonly List<LhmISensor> _sensors = new();
+    private readonly Dictionary<string, LhmISensor> _sensorsById = new(StringComparer.Ordinal);
     private readonly List<(LhmIHardware hw, ComponentType type, string componentKey)> _hardwares = new();
     private static readonly object Lock = new();
 
@@ -110,6 +111,7 @@ public sealed class UnifiedSensorCollector : IDisposable
             GraphGroup = ScaleHelper.GraphGroup(componentKey, cat, unit),
         };
         _sensors.Add(s);
+        _sensorsById[id] = s;
     }
 
     public Dictionary<string, double?> Collect()
@@ -136,8 +138,60 @@ public sealed class UnifiedSensorCollector : IDisposable
                     values[id] = v;
                 }
             }
+            PatchLiveBounds(values);
         }
         return values;
+    }
+
+    /// <summary>
+    /// Refresh derived bar/graph bounds from live telemetry so bars show real proportions
+    /// instead of saturating against static default maxima.
+    /// GPU memory: total capacity is derived from the complementary Used/Free pair (or, when present, the Total sensor).
+    /// Power / clock / fan / current: max bound is raised to the greatest value LHM has ever recorded for that sensor.
+    /// </summary>
+    private void PatchLiveBounds(Dictionary<string, double?> live)
+    {
+        foreach (var group in _catalog.Values
+            .Where(d => d.Name.StartsWith("GPU Memory", StringComparison.OrdinalIgnoreCase)
+                     && d.Category.Equals("SmallData", StringComparison.OrdinalIgnoreCase))
+            .GroupBy(d => d.ComponentKey))
+        {
+            SensorDescriptor? used = null, free = null, total = null;
+            foreach (var d in group)
+            {
+                if (d.Name.Equals("GPU Memory Used", StringComparison.OrdinalIgnoreCase)) used = d;
+                else if (d.Name.Equals("GPU Memory Free", StringComparison.OrdinalIgnoreCase)) free = d;
+                else if (d.Name.Equals("GPU Memory Total", StringComparison.OrdinalIgnoreCase)) total = d;
+            }
+            double? cap = null;
+            if (total is not null && live.TryGetValue(total.Id, out double? tv) && tv.HasValue)
+            {
+                cap = tv;
+            }
+            else if (used is not null && free is not null)
+            {
+                bool okU = live.TryGetValue(used.Id, out double? uv) && uv.HasValue;
+                bool okF = live.TryGetValue(free.Id, out double? fv) && fv.HasValue;
+                if (okU && okF && uv!.Value + fv!.Value > 0) cap = uv!.Value + fv!.Value;
+            }
+            if (cap.HasValue)
+            {
+                if (used is not null) { used.Min = 0; used.Max = Math.Max(used.Max, cap.Value); }
+                if (free is not null) { free.Min = 0; free.Max = Math.Max(free.Max, cap.Value); }
+                if (total is not null) { total.Min = 0; total.Max = Math.Max(total.Max, cap.Value); }
+            }
+        }
+        foreach (var d in _catalog.Values)
+        {
+            if (!d.Category.Equals("Power", StringComparison.OrdinalIgnoreCase)
+             && !d.Category.Equals("Clock", StringComparison.OrdinalIgnoreCase)
+             && !d.Category.Equals("Fan", StringComparison.OrdinalIgnoreCase)
+             && !d.Category.Equals("Current", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!_sensorsById.TryGetValue(d.Id, out var s)) continue;
+            float? rec;
+            try { rec = s.Max; } catch { continue; }
+            if (rec.HasValue && rec.Value > d.Max) d.Max = rec.Value;
+        }
     }
 
     private static ComponentType MapKind(LhmIHardware hw) => hw.HardwareType.ToString() switch

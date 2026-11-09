@@ -281,12 +281,23 @@ public sealed class ComponentBox : Border
         };
         var btnFocus = new WpfButton { Content = "⤢ Focus", Margin = new Thickness(4, 0, 0, 0), Padding = new Thickness(6, 2, 6, 2), FontSize = 11, Cursor = WpfCursors.Hand, ToolTip = "Bring embedded terminal to front" };
         btnFocus.Click += (_, _) => TerminalHost.Focus(Layout);
-        _termStatus = new TextBlock { VerticalAlignment = WpfVerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0), FontFamily = new WpfFontFamily("Segoe UI"), FontSize = Math.Max(9, fontSize - 1), Foreground = B("TextMutedBrush"), TextTrimming = TextTrimming.CharacterEllipsis, Text = "Starting…" };
+        _termStatus = new TextBlock { VerticalAlignment = WpfVerticalAlignment.Center, Margin = new Thickness(0), FontFamily = new WpfFontFamily("Segoe UI"), FontSize = Math.Max(9, fontSize - 1), Foreground = B("TextMutedBrush"), TextTrimming = TextTrimming.CharacterEllipsis, Text = "Starting…" };
+        // Footer (bottom): compact terminal status strip; always docked at the bottom, not affected by host box resizing.
+        var footer = new System.Windows.Controls.Border
+        {
+            Background = B("BoxHeaderBackgroundBrush"),
+            BorderBrush = B("BoxBorderDimBrush"),
+            BorderThickness = new Thickness(0, 1, 0, 0),
+            CornerRadius = new CornerRadius(0, 0, 8, 8),
+            Padding = new Thickness(8, 2, 8, 2),
+            Child = _termStatus,
+        };
+        footer.SetValue(DockPanel.DockProperty, Dock.Bottom);
+
         toolbar.Children.Add(_termCombo);
         toolbar.Children.Add(btnRestart);
         toolbar.Children.Add(btnKill);
         toolbar.Children.Add(btnFocus);
-        toolbar.Children.Add(_termStatus);
         dock.Children.Add(toolbar);
 
         // Host area (fills box): HwndHost + overlay placeholder.
@@ -314,6 +325,7 @@ public sealed class ComponentBox : Border
         _termOverlay = overlay;
         hostGrid.Children.Add(overlay);
         hostBorder.Child = hostGrid;
+        dock.Children.Add(footer);
         dock.Children.Add(hostBorder);
 
         Loaded += (_, _) =>

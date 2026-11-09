@@ -67,6 +67,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Window chrome now reacts to theme switches:** the title bar/divisor brushes are re-bound via `SetResourceReference` on hover-chrome hide/show and theme apply, instead of capturing a static brush forever. Switching themes now recolours the whole window, title bar and pattern dots instantly.
 - **Red box outline removed:** previously any box with a temperature > 85 °C or any `Load`-category sensor > 98 triggered a red border — notably `Used Space` on storage (e.g. SanDisk Extreme Portable at 100), which the user perceived as a random red outline. The whole feature (and the dead "Temp alert" setting row) is gone.
 - **Removed redundant "Save current state" menu items** (right-click and tray): they did everything "Save profile…" already does — the window bounds are written to `layout.json` on close anyway. "Profiles → Save profile…" is kept as the one canonical save path.
+- **Bars/graphs now scale to live telemetry instead of static defaults:** GPU memory max is derived from used+free (or LHM's `GPU Memory Total` sensor when present); fan/power/clock/current upper bounds ratchet to LHM's recorded all-time max for the sensor, so bars show real magnitude (e.g. `VRAM Used` ≈ 22% at 3.6 GB of 16 GB total, not 100%).
+- **Terminal box shows status in a thin footer at the bottom of the box** (e.g. `Running: Windows PowerShell`) — pinned via `Dock.Bottom` so position/layout hold when the box is resized.
 
 
 ### Planned
