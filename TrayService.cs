@@ -13,13 +13,15 @@ public sealed class TrayService : IDisposable
     private readonly WpfNotifyIcon _icon;
     private readonly MainWindow _owner;
     private bool _disposed;
+    private static Font? MenuFont;
 
     public TrayService(MainWindow owner)
     {
+        if (MenuFont is null) MenuFont = new Font("Segoe UI", 9F);
         _owner = owner;
         _icon = new WpfNotifyIcon
         {
-            Text = "SystemInfo — System Monitor II",
+            Text = "SystemInfo",
             Visible = true,
         };
         try
@@ -39,13 +41,15 @@ public sealed class TrayService : IDisposable
         _icon.DoubleClick += (_, _) => _owner.ShowFromTray();
         _icon.MouseClick += (_, e) =>
         {
-            if (e.Button == MouseButtons.Left) _owner.ShowFromTray();
+            if (e.Button == System.Windows.Forms.MouseButtons.Left) _owner.ShowFromTray();
         };
+        BalloonRequested += OnBalloonRequested;
         RebuildMenu();
     }
 
     public void RebuildMenu()
     {
+        var old = _icon.ContextMenuStrip;
         var menu = new WpfContextMenuStrip();
         // Match the selected WPF theme (readable in both light and dark modes).
         try
@@ -59,7 +63,7 @@ public sealed class TrayService : IDisposable
             menu.ForeColor = fg;
             void ThemeItem(System.Windows.Forms.ToolStripMenuItem mi)
             {
-                mi.BackColor = bg; mi.ForeColor = fg; mi.Font = new Font("Segoe UI", 9F);
+                mi.BackColor = bg; mi.ForeColor = fg; mi.Font = MenuFont;
                 foreach (var sub in mi.DropDownItems.OfType<System.Windows.Forms.ToolStripMenuItem>()) ThemeItem(sub);
             }
         }
@@ -100,24 +104,30 @@ public sealed class TrayService : IDisposable
             System.Drawing.Color fg = System.Drawing.ColorTranslator.FromHtml(def.TextPrimary);
             void Paint(System.Windows.Forms.ToolStripMenuItem mi)
             {
-                mi.BackColor = bg; mi.ForeColor = fg; mi.Font = new Font("Segoe UI", 9F);
+                mi.BackColor = bg; mi.ForeColor = fg; mi.Font = MenuFont;
                 foreach (var sub in mi.DropDownItems.OfType<System.Windows.Forms.ToolStripMenuItem>()) Paint(sub);
             }
             foreach (var it in menu.Items.OfType<System.Windows.Forms.ToolStripMenuItem>()) Paint(it);
         }
         catch { }
         _icon.ContextMenuStrip = menu;
+        if (old is not null) { try { old.Dispose(); } catch { } }
     }
 
-    public void ShowBalloon(string text)
+    public static event Action<string>? BalloonRequested;
+    private void OnBalloonRequested(string msg)
     {
-        try { _icon.ShowBalloonTip(2000, "SystemInfo", text, ToolTipIcon.Info); } catch { }
+        try { _icon.ShowBalloonTip(2000, "SystemInfo", msg, ToolTipIcon.Info); } catch { }
     }
+    /// <summary>Static hook for non-fatal notices. No-ops until a TrayService instance exists.</summary>
+    public static void ShowBalloon(string msg) => BalloonRequested?.Invoke(msg);
 
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
+        BalloonRequested -= OnBalloonRequested;
         try { _icon.Visible = false; _icon.Dispose(); } catch { }
+        try { _icon.Icon?.Dispose(); } catch { }
     }
 }

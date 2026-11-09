@@ -84,13 +84,5 @@ namespace SystemInfo
         public static string ToJson(SystemReport report)
             => System.Text.Json.JsonSerializer.Serialize(report,
                 new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-
-        /// <summary>Report text for a single section (dashboard tabs, clipboard per-tab).</summary>
-        public static string SectionToText(ReportSection section)
-        {
-            if (section.Rows.Count == 0) return "(no data)";
-            var lines = section.Rows.Select(r => $"{r.Key}: {(string.IsNullOrWhiteSpace(r.Value) ? "Unavailable" : r.Value)}");
-            return string.Join(Environment.NewLine, lines);
-        }
     }
 }

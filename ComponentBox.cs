@@ -39,8 +39,6 @@ public sealed class ComponentBox : Border
     public event Action<ComponentBox>? LayoutChanged;
 
     private static WpfSolidColorBrush B(string key) => ThemeService.Find(key);
-    private static WpfSolidColorBrush GraphBrush(int idx) => ThemeService.Find($"GraphPalette{idx % 6}");
-
     private static bool IsSourceButton(object? source)
     {
         var el = source as System.Windows.DependencyObject;
@@ -58,8 +56,6 @@ public sealed class ComponentBox : Border
     private readonly Dictionary<string, SensorRow> _rowCache = new(StringComparer.Ordinal);
     private ScrollViewer? _scroll;
     private readonly TextBlock _titleText;
-    private readonly Canvas? _graphCanvas;
-    private WrapPanel? _legendPanel;
     private readonly Canvas _canvasParent;
     private readonly List<System.Windows.Controls.Primitives.Thumb> _edgeThumbs = [];
     private TerminalHwndHost? _terminalHost;
@@ -76,6 +72,7 @@ public sealed class ComponentBox : Border
     // Sticky maximum width seen so far in this box — value/name widths only ever grow, so text/bars/graphs stop jittering horizontally on every update.
     private readonly StickyMax _stickyNameW = new();
     private readonly StickyMax _stickyValueW = new();
+    private string? _lastSensorSignature;
     internal string LatestGraphDebug = "";
 
     public ComponentBox(BoxLayout layout, Canvas canvas, double fontSize, double barHeight, double graphHeight)
@@ -159,23 +156,6 @@ public sealed class ComponentBox : Border
         }
         else
         {
-            _legendPanel = new WrapPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, Margin = new Thickness(6, 4, 6, 0) };
-            _legendPanel.SetValue(DockPanel.DockProperty, Dock.Top);
-            dock.Children.Add(_legendPanel);
-            _graphCanvas = new Canvas { Height = graphHeight, Margin = new Thickness(6, 4, 6, 0), Background = B("GraphBackgroundBrush") };
-            _graphCanvas.SetValue(DockPanel.DockProperty, Dock.Top);
-            dock.Children.Add(_graphCanvas);
-            _graphCanvas.MouseWheel += (_, e) =>
-            {
-                if (Keyboard.Modifiers == ModifierKeys.Control)
-                {
-                    int cur = Layout.GraphZoom <= 0 ? 48 : Layout.GraphZoom;
-                    int next = Math.Clamp(cur + (e.Delta > 0 ? 24 : -24), 10, 300);
-                    if (next != cur) { Layout.GraphZoom = next; LayoutChanged?.Invoke(this); }
-                    e.Handled = true;
-                }
-            };
-
             var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, HorizontalContentAlignment = WpfHorizontalAlignment.Left, VerticalContentAlignment = WpfVerticalAlignment.Top, Content = _rows };
             _scroll = scroll;
             dock.Children.Add(scroll);
@@ -248,8 +228,6 @@ public sealed class ComponentBox : Border
             _termCombo.Items.Add(cur);
             _termCombo.SelectedItem = cur;
         }
-        _suppressTermCombo = true;
-        _suppressTermCombo = false;
         _termCombo.SelectionChanged += (_, _) =>
         {
             if (_suppressTermCombo) return;
@@ -573,39 +551,47 @@ public sealed class ComponentBox : Border
         Layout.X = nx; Layout.Y = ny;
     }
 
+    private const double SnapGap = 4;
+    private const double SnapThresh = 8;
+
+    /// <summary>Sibling edges once per drag event; avoids per-mousemove allocations-of-target-arrays.</summary>
+    private List<(double start, double end)> SiblingEdges(bool isX)
+    {
+        var list = new List<(double, double)>(_canvasParent.Children.OfType<ComponentBox>().Count());
+        foreach (var child in _canvasParent.Children)
+        {
+            if (child is not ComponentBox o || ReferenceEquals(o, this)) continue;
+            double s = isX ? Canvas.GetLeft(o) : Canvas.GetTop(o);
+            double size = isX ? o.Layout.Width : o.Layout.Height;
+            list.Add((s, s + size));
+        }
+        return list;
+    }
+
+    private static double NearestSnap(List<double> targets, double candidate)
+    {
+        foreach (double t in targets)
+        {
+            if (t < 0) continue;
+            if (Math.Abs(candidate - t) <= SnapThresh) return t;
+        }
+        return candidate;
+    }
+
     private double Snap(double x, double y, bool isX)
     {
-        const double Gap = 4;
-        const double Thresh = 8;
         double candidate = isX ? x : y;
         double canvasSize = isX ? _canvasParent.ActualWidth : _canvasParent.ActualHeight;
         double boxSize = isX ? Layout.Width : Layout.Height;
         double maxPos = Math.Max(0, canvasSize - boxSize);
-        double[] targets = isX ? [0, maxPos] : [0, maxPos];
-        // Gather edges from sibling boxes
-        var others = _canvasParent.Children.OfType<ComponentBox>().Where(b => b != this).ToList();
-        foreach (var o in others)
+        var targets = new List<double> { 0, maxPos };
+        foreach (var (s, e) in SiblingEdges(isX))
         {
-            double ox = Canvas.GetLeft(o) - (isX ? Layout.Width : Layout.Height);
-            double oy = Canvas.GetTop(o) - (isX ? Layout.Width : Layout.Height);
-            // edges: left/top and right/bottom + gap
-            if (isX)
-            {
-                targets = targets.Append(Canvas.GetLeft(o)).Append(Canvas.GetLeft(o) + o.Layout.Width + Gap).ToArray();
-                targets = targets.Append(Canvas.GetLeft(o) - Layout.Width - Gap).ToArray();
-            }
-            else
-            {
-                targets = targets.Append(Canvas.GetTop(o)).Append(Canvas.GetTop(o) + o.Layout.Height + Gap).ToArray();
-                targets = targets.Append(Canvas.GetTop(o) - Layout.Height - Gap).ToArray();
-            }
+            targets.Add(s);
+            targets.Add(e + SnapGap);
+            targets.Add(s - boxSize - SnapGap);
         }
-        foreach (double t in targets)
-        {
-            if (t < 0) continue;
-            if (Math.Abs(candidate - t) <= Thresh) return t;
-        }
-        return candidate;
+        return NearestSnap(targets, candidate);
     }
 
     private void Header_MouseLeftButtonUp(object sender, WpfMouseButtonEventArgs e)
@@ -677,7 +663,7 @@ public sealed class ComponentBox : Border
         if (dir.Contains("W"))
         {
             double newX = Math.Clamp(x + dx, 0, right - 60);
-            newX = SnapLeadEdge(newX, isX: true, size: right - newX);
+            newX = SnapLeadEdge(newX, isX: true);
             double newW = right - newX;
             if (newW >= 60 && newW <= 2000) { x = newX; w = newW; }
         }
@@ -690,7 +676,7 @@ public sealed class ComponentBox : Border
         if (dir.Contains("N"))
         {
             double newY = Math.Clamp(y + dy, 0, bottom - 60);
-            newY = SnapLeadEdge(newY, isX: false, size: bottom - newY);
+            newY = SnapLeadEdge(newY, isX: false);
             double newH = bottom - newY;
             if (newH >= 60 && newH <= 2000) { y = newY; h = newH; }
         }
@@ -704,62 +690,44 @@ public sealed class ComponentBox : Border
         UpdateTitleText();
     }
 
-    private double SnapLeadEdge(double leadPos, bool isX, double size)
+    private double SnapLeadEdge(double leadPos, bool isX)
     {
-        const double Gap = 4;
-        const double Thresh = 8;
-        double[] targets = [0];
-        foreach (var o in _canvasParent.Children.OfType<ComponentBox>().Where(b => b != this))
+        var targets = new List<double> { 0 };
+        foreach (var (s, e) in SiblingEdges(isX))
         {
-            if (isX)
-            {
-                double oLeft = Canvas.GetLeft(o);
-                double oRight = oLeft + o.Layout.Width;
-                targets = targets.Append(oLeft).Append(oRight + Gap).Append(oRight).ToArray();
-            }
-            else
-            {
-                double oTop = Canvas.GetTop(o);
-                double oBottom = oTop + o.Layout.Height;
-                targets = targets.Append(oTop).Append(oBottom + Gap).Append(oBottom).ToArray();
-            }
+            targets.Add(s);
+            targets.Add(e + SnapGap);
+            targets.Add(e);
         }
-        foreach (double t in targets)
-        {
-            if (t < 0) continue;
-            if (Math.Abs(leadPos - t) <= Thresh) return t;
-        }
-        return leadPos;
+        return NearestSnap(targets, leadPos);
     }
 
     private double SnapResize(double newValue, bool isX)
     {
-        const double Gap = 4;
-        const double Thresh = 8;
         double origin = isX ? Layout.X : Layout.Y;
         double candidateEdge = origin + newValue;
-        double[] targets = [];
-        var others = _canvasParent.Children.OfType<ComponentBox>().Where(b => b != this).ToList();
-        foreach (var o in others)
+        var targets = new List<double>(8);
+        foreach (var (s, e) in SiblingEdges(isX))
         {
-            if (isX)
-            {
-                double oLeft = Canvas.GetLeft(o);
-                double oRight = oLeft + o.Layout.Width;
-                targets = targets.Append(oLeft - Gap).Append(oRight + Gap).Append(oLeft).Append(oRight).ToArray();
-            }
-            else
-            {
-                double oTop = Canvas.GetTop(o);
-                double oBottom = oTop + o.Layout.Height;
-                targets = targets.Append(oTop - Gap).Append(oBottom + Gap).Append(oTop).Append(oBottom).ToArray();
-            }
+            targets.Add(s - SnapGap);
+            targets.Add(e + SnapGap);
+            targets.Add(s);
+            targets.Add(e);
         }
         foreach (double t in targets)
         {
-            if (Math.Abs(candidateEdge - t) <= Thresh) return t - origin;
+            if (Math.Abs(candidateEdge - t) <= SnapThresh) return t - origin;
         }
         return newValue;
+    }
+
+    /// <summary>Unsubscribe every cached row from the process-wide rendering event and detach them from the visual tree. Called on box rebuilds/removal and before box destruction.</summary>
+    public void Detach()
+    {
+        foreach (var row in _rowCache.Values)
+            row.UnsubscribeRenderingFrame();
+        _rowCache.Clear();
+        _rows.Children.Clear();
     }
 
     public void UpdateRows(IReadOnlyDictionary<string, SensorDescriptor> catalog, IReadOnlyDictionary<string, double?> values, IReadOnlyDictionary<string, SensorHistory> histories, double fontSize, double barHeight, double graphHeight)
@@ -767,28 +735,28 @@ public sealed class ComponentBox : Border
         if (Layout.CustomKind == "app")
         {
             // Hosted HWND must persist across 1s refreshes — never rebuild terminal UI here.
-            if (_graphCanvas is not null) _graphCanvas.Visibility = Visibility.Collapsed;
             RefreshTerminalOverlay();
             return;
         }
         // Custom (processes/power/app) boxes: rebuild on every frame — they're cheap and rarely change.
         if (!string.IsNullOrEmpty(Layout.CustomKind))
         {
-            _rows.Children.Clear();
-            if (_graphCanvas is not null) _graphCanvas.Visibility = Visibility.Collapsed;
-            if (_legendPanel is not null) _legendPanel.Visibility = Visibility.Collapsed;
+            Detach();
             UpdateCustomRows(fontSize, barHeight);
             return;
         }
         // Sensor boxes: layout is usually stable between refreshes; reuse rows in-place.
         bool stable = _rows.Children.Count == Layout.SensorIds.Count
-                      && _rowCache.Count == Layout.SensorIds.Count
-                      && Layout.SensorIds.All(id => _rowCache.ContainsKey(id));
-        if (!stable) _rows.Children.Clear();
-        // No default "main" graphs: header graph is removed. Graphs appear only per-sensor,
-        // directly above the sensor row, and only when that sensor's Graph mode is on.
-        if (_graphCanvas is not null) { _graphCanvas.Visibility = Visibility.Collapsed; _graphCanvas.Children.Clear(); }
-        if (_legendPanel is not null) { _legendPanel.Visibility = Visibility.Collapsed; _legendPanel.Children.Clear(); }
+                      && _rowCache.Count == Layout.SensorIds.Count;
+        if (stable)
+        {
+            foreach (string id in Layout.SensorIds)
+                if (!_rowCache.ContainsKey(id)) { stable = false; break; }
+        }
+        if (!stable) Detach();
+        // Recompute sticky widths from scratch when the sensor set changes (add/remove/reorder) — never keep stale maxima.
+        string? sig = Layout.SensorIds.Count == 0 ? "" : string.Join("\u0001", Layout.SensorIds);
+        if (sig != _lastSensorSignature) { _lastSensorSignature = sig; _stickyNameW.Reset(); _stickyValueW.Reset(); }
         if (Layout.SensorIds.Count == 0)
         {
             _rows.Children.Add(new TextBlock
@@ -801,9 +769,16 @@ public sealed class ComponentBox : Border
             return;
         }
         // Uniform row sizing: name/value get a capped share, bar fills the rest (largest possible, same for every row).
-        bool anyText = Layout.SensorIds.Any(id => ScaleHelper.ModeHasText(GetMode(id, catalog.TryGetValue(id, out var dd) ? dd : null)));
-        bool anyBar = Layout.SensorIds.Any(id => ScaleHelper.ModeHasBar(GetMode(id, catalog.TryGetValue(id, out var dd2) ? dd2 : null)));
-        bool anyGraph = Layout.SensorIds.Any(id => ScaleHelper.ModeHasGraph(GetMode(id, catalog.TryGetValue(id, out var dd3) ? dd3 : null)));
+        // Single pass over SensorIds computing all mode flags (avoids three LINQ passes per box per tick).
+        bool anyText = false, anyBar = false, anyGraph = false;
+        foreach (string id in Layout.SensorIds)
+        {
+            int mode = GetMode(id, catalog.TryGetValue(id, out var dCat) ? dCat : null);
+            if (ScaleHelper.ModeHasText(mode)) anyText = true;
+            if (ScaleHelper.ModeHasBar(mode)) anyBar = true;
+            if (ScaleHelper.ModeHasGraph(mode)) anyGraph = true;
+            if (anyText && anyBar && anyGraph) break;
+        }
         // inner is derived ONLY from the box's logical width plus fixed insets — never from a live
         // ScrollViewer measurement. The Auto scrollbar appearing/disappearing must not be able to
         // change row widths on a tick (that was the residual horizontal jitter). A constant
@@ -849,7 +824,7 @@ public sealed class ComponentBox : Border
             bool showText = ScaleHelper.ModeHasText(mode);
             bool showBar = ScaleHelper.ModeHasBar(mode);
             bool showGraph = ScaleHelper.ModeHasGraph(mode);
-            string keyArgs = SensorRow.KeyOf(showText, showBar, showGraph, fontSize, barHeight, nameW, valueW, barWidth, boxWidth);
+            SensorRow.RowLayoutKey keyArgs = SensorRow.KeyOf(showText, showBar, showGraph, fontSize, barHeight, nameW, valueW, barWidth, boxWidth);
             if (_rowCache.TryGetValue(id, out var cached) && cached.KeyArgs == keyArgs)
             {
                 cached.UpdateFrom(v, h, Layout.NetworkSpeedUnit);
@@ -857,6 +832,7 @@ public sealed class ComponentBox : Border
             }
             else
             {
+                if (_rowCache.TryGetValue(id, out var evicted)) evicted.UnsubscribeRenderingFrame();
                 var row = new SensorRow(id, d, v, h, boxWidth, fontSize, barHeight, showText, showBar, showGraph, barWidth, nameW, valueW, Layout.NetworkSpeedUnit);
                 _rowCache[id] = row;
                 _rows.Children.Add(row);
@@ -864,7 +840,17 @@ public sealed class ComponentBox : Border
             keep.Add(id);
         }
         // Drop cache entries for sensors no longer shown on this box.
-        foreach (string stale in _rowCache.Keys.Where(k => !keep.Contains(k)).ToList())
+        List<string>? staleKeys = null;
+        foreach (string k in _rowCache.Keys)
+        {
+            if (!keep.Contains(k))
+            {
+                staleKeys ??= new();
+                staleKeys.Add(k);
+            }
+        }
+        if (staleKeys is not null)
+        foreach (string stale in staleKeys)
         {
             if (_rowCache.TryGetValue(stale, out var staleRow)) staleRow.UnsubscribeRenderingFrame();
             _rowCache.Remove(stale);
@@ -888,9 +874,8 @@ public sealed class ComponentBox : Border
             foreach (var p in top)
             {
                 double heatPct = p.HeatPct;
-                // Cloned so the shared cache brush stays unedited (and opaque).
-                var heat = new WpfSolidColorBrush(ThemeService.HeatBrush(heatPct).Color) { Opacity = 0.35 };
-                heat.Freeze();
+                // Frozen, cached — no allocation per refresh.
+                var heat = ThemeService.HeatBrushTranslucent(heatPct);
                 var outer = new Border { Background = heat, BorderThickness = new Thickness(0), CornerRadius = new CornerRadius(3), Margin = new Thickness(0, 0.5, 0, 0.5), Width = Math.Max(200, Layout.Width - 16) };
                 var row = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, Margin = new Thickness(4, 1, 4, 1) };
                 row.Children.Add(new TextBlock { Text = p.Name, FontFamily = new WpfFontFamily("Segoe UI"), FontSize = fontSize, Foreground = B("TextPrimaryBrush"), TextTrimming = TextTrimming.CharacterEllipsis, Width = 150, VerticalAlignment = WpfVerticalAlignment.Center });
@@ -1046,12 +1031,12 @@ public sealed class ComponentBox : Border
             UpdateTitleText();
             LayoutChanged?.Invoke(this);
             // Apply immediately inside the hosted box (don't just relaunch separately).
-            if (_termCombo is not null && _terminalHost is not null && (oldId != chosen || true))
+            if (_termCombo is not null && _terminalHost is not null)
             {
                 _suppressTermCombo = true;
                 foreach (var it in _termCombo.Items.OfType<System.Windows.Controls.ComboBoxItem>())
                 {
-                    if (it.Tag?.ToString() == chosen || (it.Tag?.ToString() != null && (it.Tag?.ToString() == chosen))) { _termCombo.SelectedItem = it; break; }
+                    if (it.Tag?.ToString() == chosen) { _termCombo.SelectedItem = it; break; }
                 }
                 if (_termCombo.SelectedItem is not System.Windows.Controls.ComboBoxItem curSel || curSel.Tag?.ToString() != chosen)
                 {
@@ -1069,92 +1054,6 @@ public sealed class ComponentBox : Border
         win.ShowDialog();
     }
 
-    private void DrawGraph(IReadOnlyDictionary<string, SensorDescriptor> catalog, IReadOnlyDictionary<string, SensorHistory> histories, IReadOnlyList<string>? effectiveGraphIds = null)
-    {
-        if (_graphCanvas is null) return;
-        _graphCanvas.Children.Clear();
-        // Legend (above the plot): one swatch + short name per header series, in list order.
-        if (_legendPanel is not null)
-        {
-            _legendPanel.Children.Clear();
-            var idsForLegend = (effectiveGraphIds ?? Layout.GraphSensorIds).Where(id => catalog.ContainsKey(id)).ToList();
-            for (int li = 0; li < idsForLegend.Count; li++)
-            {
-                string lid = idsForLegend[li];
-                var d = catalog[lid];
-                int pal = Layout.GraphSeriesColors != null && Layout.GraphSeriesColors.TryGetValue(lid, out int ci) ? ci : li;
-                var sw = new System.Windows.Controls.Border { Width = 16, Height = 3, Background = GraphBrush(pal), VerticalAlignment = WpfVerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) };
-                var lab = new TextBlock { Text = ScaleHelper.ShortSensorLabel(d), FontFamily = new WpfFontFamily("Segoe UI"), FontSize = 10, Foreground = B("TextMutedBrush"), VerticalAlignment = WpfVerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 0, 10, 0), MaxWidth = 110, ToolTip = $"{d.Name} ({d.Category} {d.Unit})" };
-                var item = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, Margin = new Thickness(0, 0, 6, 4) };
-                item.Children.Add(sw); item.Children.Add(lab);
-                _legendPanel.Children.Add(item);
-            }
-        }
-        var grid = ThemeService.Find("PatternDotBrush");
-        for (int g = 1; g <= 3; g++)
-        {
-            double gy = _graphCanvas.Height * g / 4.0;
-            var gl = new Line { X1 = 2, Y1 = gy, X2 = Math.Max(100, Layout.Width - 22), Y2 = gy, Stroke = grid, StrokeThickness = 0.5, Opacity = 0.35, StrokeDashArray = new DoubleCollection { 2, 3 } };
-            _graphCanvas.Children.Add(gl);
-        }
-        var graphIds = effectiveGraphIds ?? Layout.GraphSensorIds;
-        if (graphIds.Count == 0) return;
-        var series = graphIds.Where(id => catalog.ContainsKey(id) && histories.ContainsKey(id)).ToList();
-        if (series.Count == 0) return;
-        double w = Math.Max(100, Layout.Width - 20);
-        double h = _graphCanvas.Height;
-        if (h < 10) h = 40;
-        int zoom = Layout.GraphZoom <= 0 ? 48 : Layout.GraphZoom;
-        double thickness = Layout.GraphLineThickness <= 0 ? 1.4 : Layout.GraphLineThickness;
-        bool fixedScale = Layout.GraphScaleMode == "Fixed";
-        // Group by GraphGroup when combined so per-core lines share one scale (comparable).
-        List<List<string>> groups = Layout.CombineGraphs
-            ? series.GroupBy(id => catalog[id].GraphGroup).Select(g => g.ToList()).ToList()
-            : series.Select(id => new List<string> { id }).ToList();
-        int seriesIndex = 0;
-        foreach (var grp in groups)
-        {
-            // Shared scale for this group.
-            double gmin = double.MaxValue, gmax = double.MinValue;
-            var hists = new List<(string id, SensorDescriptor d, double[] hist)>();
-            foreach (string id in grp)
-            {
-                var d = catalog[id];
-                var all = histories[id].Values.ToArray();
-                var hist = all.Length > zoom ? all.Skip(all.Length - zoom).ToArray() : all;
-                if (hist.Length < 2) continue;
-                hists.Add((id, d, hist));
-                if (fixedScale)
-                {
-                    gmin = Math.Min(gmin, d.Min); gmax = Math.Max(gmax, d.Max);
-                }
-                else
-                {
-                    gmin = Math.Min(gmin, Math.Min(d.Min, hist.Min()));
-                    gmax = Math.Max(gmax, Math.Max(d.Max, hist.Max()));
-                }
-            }
-            if (gmax <= gmin) { gmax = gmin + 1; }
-            foreach (var (id, d, hist) in hists)
-            {
-                var pts = new WpfPointCollection();
-                for (int i = 0; i < hist.Length; i++)
-                {
-                    double x = i * (w - 4) / (hist.Length - 1) + 2;
-                    double y = h - 2 - ((hist[i] - gmin) / (gmax - gmin)) * (h - 4);
-                    pts.Add(new WpfPoint(x, y));
-                }
-                int pal = Layout.GraphSeriesColors != null && Layout.GraphSeriesColors.TryGetValue(id, out int ci2) ? ci2 : seriesIndex;
-                Wpfbrush brush = GraphBrush(pal);
-                for (int i = 0; i < pts.Count - 1; i++)
-                {
-                    var seg = new Line { X1 = pts[i].X, Y1 = pts[i].Y, X2 = pts[i + 1].X, Y2 = pts[i + 1].Y, Stroke = brush, StrokeThickness = thickness };
-                    _graphCanvas.Children.Add(seg);
-                }
-                seriesIndex++;
-            }
-        }
-    }
 
 }
 
@@ -1173,16 +1072,58 @@ public sealed class SensorRow : StackPanel
     private TextBlock? _awaitText;
     private bool _graphDirty;
     private SensorHistory? _lastHistory;
-    private readonly string _keyArgs;
+    private readonly RowLayoutKey _keyArgs;
 
     /// <summary>
     /// Identity of a row's static layout (visibility of text/bar/graph, sizes). Rows whose key args match can be reused and updated in place.
     /// </summary>
-    public string KeyArgs => _keyArgs;
+    public RowLayoutKey KeyArgs => _keyArgs;
+
+    /// <summary>Value-semantics layout key — no string interpolation or parsing, zero allocations per tick.</summary>
+    public readonly struct RowLayoutKey : IEquatable<RowLayoutKey>
+    {
+        public readonly bool ShowText, ShowBar, ShowGraph;
+        public readonly double FontSize, BarHeight;
+        public readonly int NameW, ValueW, BarWidth, BoxRight;
+
+        private RowLayoutKey(bool showText, bool showBar, bool showGraph, double fontSize, double barHeight, int nameW, int valueW, int barWidth, int boxRight)
+        {
+            ShowText = showText; ShowBar = showBar; ShowGraph = showGraph;
+            FontSize = fontSize; BarHeight = barHeight;
+            NameW = nameW; ValueW = valueW; BarWidth = barWidth; BoxRight = boxRight;
+        }
+
+        public static RowLayoutKey Of(bool showText, bool showBar, bool showGraph, double fontSize, double barHeight, double nameW, double valueW, double barWidth, double boxWidth)
+            => new(showText, showBar, showGraph, fontSize, barHeight,
+                   (int)Math.Round(nameW), (int)Math.Round(valueW), (int)Math.Round(barWidth), (int)Math.Round(Math.Max(120, boxWidth - 16)));
+
+        public bool Equals(RowLayoutKey other)
+            => ShowText == other.ShowText && ShowBar == other.ShowBar && ShowGraph == other.ShowGraph
+               && FontSize.Equals(other.FontSize) && BarHeight.Equals(other.BarHeight)
+               && NameW == other.NameW && ValueW == other.ValueW && BarWidth == other.BarWidth && BoxRight == other.BoxRight;
+
+        public override bool Equals(object? obj) => obj is RowLayoutKey k && Equals(k);
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                int h = (ShowText ? 1 : 0) | (ShowBar ? 2 : 0) | (ShowGraph ? 4 : 0);
+                h = h * 397 ^ NameW;
+                h = h * 397 ^ ValueW;
+                h = h * 397 ^ BarWidth;
+                h = h * 397 ^ BoxRight;
+                h = h * 397 ^ (int)(FontSize * 10);
+                h = h * 397 ^ (int)(BarHeight * 10);
+                return h;
+            }
+        }
+        public static bool operator ==(RowLayoutKey a, RowLayoutKey b) => a.Equals(b);
+        public static bool operator !=(RowLayoutKey a, RowLayoutKey b) => !a.Equals(b);
+    }
 
     /// <summary>Static identity key used to reuse a row across refreshes.</summary>
-    public static string KeyOf(bool showText, bool showBar, bool showGraph, double fontSize, double barHeight, double nameW, double valueW, double barWidth, double boxWidth)
-        => $"{showText}|{showBar}|{showGraph}|{fontSize:0}|{barHeight:0}|{nameW:0}|{valueW:0}|{barWidth:0}|{Math.Max(120, boxWidth - 16):0}";
+    public static RowLayoutKey KeyOf(bool showText, bool showBar, bool showGraph, double fontSize, double barHeight, double nameW, double valueW, double barWidth, double boxWidth)
+        => RowLayoutKey.Of(showText, showBar, showGraph, fontSize, barHeight, nameW, valueW, barWidth, boxWidth);
 
     public SensorRow(string id, SensorDescriptor? d, double? value, SensorHistory? history, double boxWidth, double fontSize, double barHeight, bool showText, bool showBar, bool showGraph, double barWidth = 70, double nameW = 150, double valueW = 76, string networkSpeedUnit = "Auto")
     {
@@ -1299,12 +1240,21 @@ public sealed class SensorRow : StackPanel
         bool hadCanvas = _graphCanvas is not null;
         if (!hadCanvas || Math.Abs(_graphCanvas!.Width - graphW) > 0.01 || Math.Abs(_graphCanvas.Height - graphH) > 0.01)
         {
-            if (hadCanvas) Children.Remove(_graphCanvas!);
-            _graphCanvas = RebuildGraphCanvas(graphH, graphW);
-            if (hadCanvas) Children.Add(_graphCanvas!); // re-add only when replacing an attached canvas
+            int insertAt = hadCanvas ? Children.IndexOf(_graphCanvas!) : -1;
+            if (hadCanvas)
+            {
+                Children.Remove(_graphCanvas!);
+                _graphCanvas = RebuildGraphCanvas(graphH, graphW);
+                if (insertAt >= 0 && insertAt <= Children.Count) Children.Insert(insertAt, _graphCanvas!);
+            }
+            else
+            {
+                _graphCanvas = RebuildGraphCanvas(graphH, graphW);
+                // first creation is attached by the ctor's Children.Add(graph)
+            }
         }
         var canvas = _graphCanvas!;
-        const int WindowSamples = 300;
+        const int WindowSamples = SensorHistory.DefaultCapacity;
         if (d is null || history is null || history.Values.Count < 2)
         {
             if (_awaitText is not null) _awaitText.Visibility = Visibility.Visible;
@@ -1316,13 +1266,16 @@ public sealed class SensorRow : StackPanel
             return canvas;
         }
         if (_awaitText is not null) _awaitText.Visibility = Visibility.Collapsed;
-        var vals = history.Values.ToArray();
-        int segCount = vals.Length - 1;
-        double max = Math.Max(d.Max, vals.Max());
-        double min = Math.Min(d.Min, vals.Min());
+        var vals = history.Values;
+        // Clip to the last WindowSamples values; never draw off-canvas.
+        int win = Math.Min(vals.Count, WindowSamples);
+        int start = vals.Count - win;
+        double max = d.Max, min = d.Min;
+        for (int i = start; i < vals.Count; i++) { if (vals[i] > max) max = vals[i]; if (vals[i] < min) min = vals[i]; }
         if (max <= min) max = min + 1;
         double step = (graphW - 4) / (double)WindowSamples;
-        double x0 = graphW - 2 - step * vals.Length;
+        double x0 = graphW - 2 - step * win;
+        int segCount = win - 1;
         // Trim/extend the segment pool to match history length (no allocation in steady state).
         while (_graphLines.Count > segCount)
         {
@@ -1340,10 +1293,11 @@ public sealed class SensorRow : StackPanel
         {
             var seg = _graphLines[i];
             double x1 = x0 + i * step;
-            double y1 = graphH - 2 - ((vals[i] - min) / (max - min)) * (graphH - 4);
+            double v1 = vals[start + i];
+            double y1 = graphH - 2 - ((v1 - min) / (max - min)) * (graphH - 4);
             double x2 = x0 + (i + 1) * step;
-            double y2 = graphH - 2 - ((vals[i + 1] - min) / (max - min)) * (graphH - 4);
-            double pct1 = (vals[i] - min) / (max - min);
+            double y2 = graphH - 2 - ((vals[start + i + 1] - min) / (max - min)) * (graphH - 4);
+            double pct1 = (v1 - min) / (max - min);
             seg.X1 = x1; seg.Y1 = y1; seg.X2 = x2; seg.Y2 = y2;
             seg.Stroke = ThemeService.HeatBrush(pct1);
         }
@@ -1353,7 +1307,7 @@ public sealed class SensorRow : StackPanel
     private Canvas RebuildGraphCanvas(double graphH, double graphW)
     {
         _graphLines.Clear();
-        var canvas = new Canvas { Height = graphH, Width = graphW, Background = ThemeService.Find("GraphBackgroundBrush"), HorizontalAlignment = WpfHorizontalAlignment.Stretch, Margin = new Thickness(0, 0.5, 0, 0) };
+        var canvas = new Canvas { Height = graphH, Width = graphW, Background = ThemeService.Find("GraphBackgroundBrush"), HorizontalAlignment = WpfHorizontalAlignment.Stretch, Margin = new Thickness(0, 0.5, 0, 0), ClipToBounds = true };
         // Gridlines (2 inner lines).
         var grid = ThemeService.Find("PatternDotBrush");
         for (int g = 1; g <= 2; g++)
@@ -1379,9 +1333,20 @@ public static class ProcessHelper
     private static readonly object _lock = new();
     private static readonly int _procs = Environment.ProcessorCount;
     private const int HeatWindow = 60;
+    private static readonly object GetTopLock = new();
+    private static List<(string Name, double CpuPercent, long RamMB, int Threads, int Pid, double HeatPct)>? _topCache;
+    private static int _cacheTick;
+    private static int _cacheLimit;
+    private static string _cacheSort = "";
 
     public static List<(string Name, double CpuPercent, long RamMB, int Threads, int Pid, double HeatPct)> GetTop(int limit, string sort)
     {
+        // Two process boxes usually shown side-by-side share the same snapshot; cache for ~1.5 s.
+        lock (GetTopLock)
+        {
+            if (sort == _cacheSort && limit == _cacheLimit && Environment.TickCount - _cacheTick < 1500 && _topCache is not null)
+                return _topCache;
+        }
         var list = new List<(string Name, double CpuPercent, long RamMB, int Threads, int Pid, double Avg)>();
         DateTime now = DateTime.UtcNow;
         double maxAvg = 0;
@@ -1458,6 +1423,13 @@ public static class ProcessHelper
             _ => list.OrderByDescending(x => x.Item2).ToList(),
         };
         var result = new List<(string Name, double CpuPercent, long RamMB, int Threads, int Pid, double HeatPct)>(Math.Min(limit, ordered.Count));
+        lock (GetTopLock)
+        {
+            _topCache = result;
+            _cacheTick = Environment.TickCount;
+            _cacheSort = sort;
+            _cacheLimit = limit;
+        }
         double shareScale = maxAvg > 0 ? 1.0 / maxAvg : 0;
         int count = 0;
         foreach (var item in ordered)
@@ -1540,26 +1512,6 @@ public static class AppHelper
         if (string.IsNullOrWhiteSpace(appId)) return false;
         if (PresetIds.Contains(appId)) return true;
         return IsTerminalExe(appId);
-    }
-
-    public static void Launch(string appId, string args)
-    {
-        // Fallback only (embedding failed / external). Normal path is TerminalHost embed.
-        try
-        {
-            var path = ResolvePath(appId);
-            var psi = new ProcessStartInfo(path)
-            {
-                Arguments = string.IsNullOrWhiteSpace(args) ? DefaultArgs(appId) : args,
-                UseShellExecute = false,
-                CreateNoWindow = false,
-            };
-            Process.Start(psi);
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show($"Failed to launch {DisplayName(appId)}: {ex.Message}", "Terminal", MessageBoxButton.OK, MessageBoxImage.Warning);
-        }
     }
 
     public static string? BrowseExe()

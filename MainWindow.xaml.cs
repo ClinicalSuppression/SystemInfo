@@ -31,13 +31,15 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        _layout = App.ProfileLayoutOverride ?? LayoutStore.LoadOrDefault();
-        _firstRun = App.ProfileLayoutOverride is null && !LayoutStore.ExistsOnDisk;
+        var loaded = App.ProfileLayoutOverride ?? LayoutStore.LoadOrNull();
+        _layout = loaded ?? new WindowLayout();
+        // Missing file OR corrupt (preserved+logged by LoadOrNull): build the stock layout in Loaded.
+        _firstRun = App.ProfileLayoutOverride is null && loaded is null;
         try { ThemeService.Apply(_layout.ThemeScheme, ThemeService.ResolveEffectiveMode(_layout.ThemeMode)); } catch { ThemeService.Apply("Midnight", "Dark"); }
         ApplyWindowBounds();
         Topmost = _layout.KeepOnTop;
         BuildContextMenu();
-        RefreshThumb();
+
         ApplyBackgroundImage();
 
         // Headless test harness: if --fit-test / --compact-test / --perf-ms was specified, seed a layout then measure or run the action.
@@ -350,11 +352,6 @@ public partial class MainWindow : Window
         ContextMenu = menu;
     }
 
-    private void RefreshThumb()
-    {
-        // Native Windows resize via WM_NCHITTEST — no visible squares.
-    }
-
     private void InitNativeResize()
     {
         try
@@ -536,22 +533,29 @@ public partial class MainWindow : Window
         GrowCanvasToFit();
     }
 
-    private void ApplySearchFilter()
-    {
-        GrowCanvasToFit();
-    }
-
     public IReadOnlyList<ComponentBox> BoxControls => _boxControls;
 
     private void ApplyBoxLocks()
     {
         foreach (var box in _boxControls) box.SetLocked(_layout.BoxesLocked || box.Layout.Locked);
-        RefreshThumb();
+
     }
 
     private void SaveLayout()
     {
-        _layout.Left = Left; _layout.Top = Top; _layout.Width = Width; _layout.Height = Height;
+        // When minimized, persist the *restored* bounds so the next launch doesn't inherit taskbar-snapped values.
+        // In any other state, RestoreBounds can return empty/NaN values (window never measured, hidden...) which break JSON save.
+        if (WindowState == WindowState.Minimized)
+        {
+            _layout.Left = RestoreBounds.Left;
+            _layout.Top = RestoreBounds.Top;
+            _layout.Width = RestoreBounds.Width;
+            _layout.Height = RestoreBounds.Height;
+        }
+        else
+        {
+            _layout.Left = Left; _layout.Top = Top; _layout.Width = Width; _layout.Height = Height;
+        }
         try { LayoutStore.Save(_layout); } catch (Exception ex) { App.LogError(ex); }
     }
 
@@ -594,6 +598,7 @@ public partial class MainWindow : Window
 
     private void RebuildBoxes()
     {
+        foreach (var c in _boxControls) { try { c.Detach(); } catch (Exception ex) { App.LogError(ex); } }
         _boxControls.Clear();
         BoardCanvas.Children.Clear();
         double fs = ScaleHelper.FontSize(_layout.FontScale);
@@ -614,7 +619,6 @@ public partial class MainWindow : Window
             _boxControls.Add(ctrl);
         }
         GrowCanvasToFit();
-        ApplySearchFilter();
     }
 
     private void GrowCanvasToFit()
@@ -727,7 +731,6 @@ public partial class MainWindow : Window
         SaveLayout();
         RefreshAll();
         RebuildBoxes();
-        ApplySearchFilter();
     }
 
     private void OpenPicker(ComponentBox box)
@@ -738,17 +741,15 @@ public partial class MainWindow : Window
         // Feed the picker history map so live values render in the list.
         foreach (var kv in liveValues)
         {
-            if (!_histories.TryGetValue(kv.Key, out var h)) { h = new SensorHistory { Capacity = 300 }; _histories[kv.Key] = h; }
+            if (!_histories.TryGetValue(kv.Key, out var h)) { h = new SensorHistory(); _histories[kv.Key] = h; }
             h.Push(kv.Value);
         }
-        var dlg = new SensorPickerWindow(box.Layout.Title, box.Layout.ComponentKey, _collector.Descriptors, box.Layout.SensorIds, box.Layout.GraphSensorIds, box.Layout.SensorModes, box.Layout.CombineGraphs, liveValues, box.Layout.GraphShowLegend, box.Layout.GraphScaleMode, box.Layout.GraphLineThickness, box.Layout.GraphSeriesColors, _collector.GetStatusSummary(liveValues), box.Layout.NetworkSpeedUnit) { Owner = this };
+        var dlg = new SensorPickerWindow(box.Layout.Title, box.Layout.ComponentKey, _collector.Descriptors, box.Layout.SensorIds, box.Layout.GraphSensorIds, box.Layout.SensorModes, liveValues, box.Layout.GraphScaleMode, box.Layout.GraphLineThickness, box.Layout.GraphSeriesColors, _collector.GetStatusSummary(liveValues), box.Layout.NetworkSpeedUnit) { Owner = this };
         if (dlg.ShowDialog() == true)
         {
             box.Layout.SensorIds = dlg.SensorIds.ToList();
             box.Layout.GraphSensorIds = dlg.GraphSensorIds.ToList();
             box.Layout.SensorModes = dlg.SensorModes;
-            box.Layout.CombineGraphs = dlg.CombineGraphs;
-            box.Layout.GraphShowLegend = dlg.GraphShowLegend;
             box.Layout.GraphScaleMode = dlg.GraphScaleMode;
             box.Layout.GraphLineThickness = dlg.GraphLineThickness;
             box.Layout.GraphSeriesColors = dlg.GraphSeriesColors;
@@ -775,7 +776,7 @@ public partial class MainWindow : Window
         try { values = _collector.Collect(); } catch (Exception ex) { App.LogError(ex); return; }
         foreach (var kv in values)
         {
-            if (!_histories.TryGetValue(kv.Key, out var h)) { h = new SensorHistory { Capacity = 300 }; _histories[kv.Key] = h; }
+            if (!_histories.TryGetValue(kv.Key, out var h)) { h = new SensorHistory(); _histories[kv.Key] = h; }
             h.Push(kv.Value);
         }
         double fs = ScaleHelper.FontSize(_layout.FontScale);

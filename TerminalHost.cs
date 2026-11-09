@@ -105,6 +105,7 @@ public static class TerminalHost
             }
             // stale/exited session: drop it and start fresh
             existing.StopPoll();
+            try { existing.Process?.Dispose(); } catch { }
             s_sessions.Remove(layout);
         }
         Start(layout, host);
@@ -382,6 +383,8 @@ public static class TerminalHost
     {
         uint ownPid = (uint)Environment.ProcessId;
         uint targetPid = session.Process is null ? 0 : (uint)session.Process.Id;
+        if (targetPid == 0) return; // no handle to the spawned process: refuse to hide anything
+        HashSet<uint> ancestors = BuildAncestorChain(targetPid);
         try
         {
             Win32.EnumWindows((hwnd, _) =>
@@ -390,7 +393,8 @@ public static class TerminalHost
                 Win32.GetWindowThreadProcessId(hwnd, out uint pid);
                 if (pid == ownPid) return true;
                 string cls = Win32.GetClassName(hwnd) ?? "";
-                if (pid == targetPid || cls == "ConsoleWindowClass" || cls.Contains("Cascadia"))
+                bool ours = pid == targetPid || (ancestors.Contains(pid) && IsConsoleLikeClass(cls));
+                if (ours)
                 {
                     try { Win32.ShowWindow(hwnd, Win32.SW_HIDE); } catch { }
                 }
@@ -399,6 +403,44 @@ public static class TerminalHost
         }
         catch { }
     }
+
+    private static HashSet<uint> BuildAncestorChain(uint targetPid)
+    {
+        // Parent chain of the spawned terminal process (bounded depth). The console window is usually
+        // hosted by conhost.exe (direct parent of the shell) or Windows Terminal — both are ancestors
+        // of the process we spawned, never unrelated apps.
+        var chain = new HashSet<uint>();
+        uint cur = targetPid;
+        for (int i = 0; i < 4; i++)
+        {
+            if (!TryGetParentPid(cur, out uint parent) || parent == 0 || parent == cur) break;
+            if (parent == 4 /* System */ || parent == 8 /* System Idle */) break;
+            if (chain.Contains(parent)) break;
+            chain.Add(parent);
+            cur = parent;
+        }
+        return chain;
+    }
+
+    private static bool TryGetParentPid(uint pid, out uint parent)
+    {
+        parent = 0;
+        try
+        {
+            using var mo = new System.Management.ManagementObject($"Win32_Process.Handle='{pid}'");
+            var p = mo["ParentProcessId"];
+            if (p is null) return false;
+            parent = Convert.ToUInt32(p);
+            return true;
+        }
+        catch { return false; }
+    }
+
+    private static bool IsConsoleLikeClass(string cls)
+        => cls.Length > 0 && (cls.Contains("Console", StringComparison.OrdinalIgnoreCase)
+            || cls.Contains("Cascadia", StringComparison.OrdinalIgnoreCase)
+            || cls.Contains("ApplicationFrame", StringComparison.OrdinalIgnoreCase)
+            || cls.Contains("OpenConsole", StringComparison.OrdinalIgnoreCase));
 
     private static HashSet<IntPtr> SnapshotVisibleWindows()
     {
@@ -416,6 +458,7 @@ public static class TerminalHost
         IntPtr found = IntPtr.Zero;
         uint ownPid = (uint)Environment.ProcessId;
         uint targetPid = proc is null ? 0 : (uint)proc.Id;
+        HashSet<uint> ancestors = targetPid == 0 ? new HashSet<uint>() : BuildAncestorChain(targetPid);
         Win32.EnumWindows((hwnd, _) =>
         {
             if (found != IntPtr.Zero) return false;
@@ -424,12 +467,11 @@ public static class TerminalHost
             Win32.GetWindowThreadProcessId(hwnd, out uint pid);
             if (pid == ownPid) return true; // never steal our own window
             string cls = Win32.GetClassName(hwnd) ?? "";
-            // Direct child of terminal process (PuTTY, some consoles)
+            // Window owned by the spawned process itself (direct GUI child, e.g. some consoles)
             if (targetPid != 0 && pid == targetPid) { found = hwnd; return false; }
-            // Console window hosted by conhost.exe (cmd / powershell open via conhost)
-            if (cls == "ConsoleWindowClass") { found = hwnd; return false; }
-            // Windows Terminal
-            if (cls is "Cascadia_Window" or "Cascadia_WindowsTerminal" or "ApplicationFrameHistory" || cls.Contains("Cascadia")) { found = hwnd; return false; }
+            // Window owned by a console host that is an ancestor of our spawned process
+            // (conhost/OpenConsole as parent of the shell, Windows Terminal as parent of the tab)
+            if (IsConsoleLikeClass(cls) && ancestors.Contains(pid)) { found = hwnd; return false; }
             return true;
         }, IntPtr.Zero);
         return found;

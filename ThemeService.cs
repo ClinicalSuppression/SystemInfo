@@ -73,13 +73,15 @@ public static class ThemeService
         return "Dark";
     }
 
-    public static void Apply(string scheme, string mode, bool colorBlindSafe = false)
+    public static void Apply(string scheme, string mode)
     {
         // Theme-colored caches are stale on any palette switch.
         for (int i = 0; i < HeatCache.Length; i++) HeatCache[i] = null!;
+        for (int i = 0; i < HeatCacheTranslucent.Length; i++) HeatCacheTranslucent[i] = null!;
         string key = (scheme ?? "Midnight") + (mode == "Light" ? "Light" : "Dark");
         if (!Definitions.TryGetValue(key, out var def))
             def = Definitions["MidnightDark"];
+        var prev = _current;
         _current = def;
         // Publish tokens as Application resources so DynamicResource / FindResource work.
         try
@@ -114,20 +116,19 @@ public static class ThemeService
                 res["ResizeGripBrush"] = Brush(def.ResizeGrip);
                 res["GraphBackgroundBrush"] = Brush(def.GraphBackground);
                 res["WindowPatternBrush"] = CreatePatternBrush(def.PatternDot);
-                string[] palette = colorBlindSafe
-                    ? new[] { "#0072B2", "#E69F00", "#009E73", "#CC79A7", "#56B4E9", "#F0E442" }
-                    : def.GraphPalette;
+                string[] palette = def.GraphPalette;
                 for (int i = 0; i < palette.Length; i++)
                     res[$"GraphPalette{i}"] = Brush(palette[i]);
-                if (colorBlindSafe)
-                {
-                    res["BarOkayBrush"] = Brush("#0072B2");
-                    res["BarWarnBrush"] = Brush("#E69F00");
-                    res["BarHotBrush"] = Brush("#CC79A7");
-                }
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            // Partial theme application leaves mixed caches; roll back to the previous palette.
+            _current = prev ?? Definitions["MidnightDark"];
+            for (int i = 0; i < HeatCache.Length; i++) HeatCache[i] = null!;
+            for (int i = 0; i < HeatCacheTranslucent.Length; i++) HeatCacheTranslucent[i] = null!;
+            try { App.LogError(ex); } catch { }
+        }
     }
 
     public static Wpfbrush WindowBackgroundBrush(ThemeDefinition d)
@@ -176,6 +177,18 @@ public static class ThemeService
         brush.Freeze();
         HeatCache[key] = brush;
         return brush;
+    }
+
+    private static readonly SolidColorBrush[] HeatCacheTranslucent = new SolidColorBrush[101];
+    /// <summary>0.35-opacity variant of HeatBrush, frozen and cached — for row heat tints rebuilt per refresh.</summary>
+    public static SolidColorBrush HeatBrushTranslucent(double pct01)
+    {
+        int key = Math.Clamp((int)Math.Round(pct01 * 100), 0, 100);
+        if (HeatCacheTranslucent[key] is { } cached) return cached;
+        var b = new SolidColorBrush(HeatBrush(key / 100.0).Color) { Opacity = 0.35 };
+        b.Freeze();
+        HeatCacheTranslucent[key] = b;
+        return b;
     }
 
     private static WpfColor Lerp(WpfColor a, WpfColor b, double t)

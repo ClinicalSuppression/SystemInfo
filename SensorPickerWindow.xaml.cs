@@ -27,36 +27,27 @@ public partial class SensorPickerWindow : Window
     public List<string> GraphSensorIds { get; private set; } = [];
     public Dictionary<string, int> SensorModes { get; private set; } = new(StringComparer.Ordinal);
     public Dictionary<string, int> GraphSeriesColors { get; private set; } = new(StringComparer.Ordinal);
-    public bool CombineGraphs { get; private set; } = true;
-    public bool GraphShowLegend { get; private set; } = true;
     public string GraphScaleMode { get; private set; } = "Auto";
     public double GraphLineThickness { get; private set; } = 1.4;
     public string NetworkSpeedUnit { get; private set; } = "Auto";
 
-    public SensorPickerWindow(string boxTitle, string componentKey, IReadOnlyDictionary<string, SensorDescriptor> catalog, IEnumerable<string> existingShow, IEnumerable<string> existingGraph, bool combine)
-        : this(boxTitle, componentKey, catalog, existingShow, existingGraph, null, combine, null, false, "Auto", 1.4, null, "", "Auto")
+    public SensorPickerWindow(string boxTitle, string componentKey, IReadOnlyDictionary<string, SensorDescriptor> catalog, IEnumerable<string> existingShow, IEnumerable<string> existingGraph)
+        : this(boxTitle, componentKey, catalog, existingShow, existingGraph, null, null, "Auto", 1.4, null, "", "Auto")
     {
     }
 
-    public SensorPickerWindow(string boxTitle, string componentKey, IReadOnlyDictionary<string, SensorDescriptor> catalog, IEnumerable<string> existingShow, IEnumerable<string> existingGraph, IReadOnlyDictionary<string, int>? existingModes, bool combine)
-        : this(boxTitle, componentKey, catalog, existingShow, existingGraph, existingModes, combine, null, false, "Auto", 1.4, null, "", "Auto")
+    public SensorPickerWindow(string boxTitle, string componentKey, IReadOnlyDictionary<string, SensorDescriptor> catalog, IEnumerable<string> existingShow, IEnumerable<string> existingGraph, IReadOnlyDictionary<string, int>? existingModes)
+        : this(boxTitle, componentKey, catalog, existingShow, existingGraph, existingModes, null, "Auto", 1.4, null, "", "Auto")
     {
     }
 
-    public SensorPickerWindow(string boxTitle, string componentKey, IReadOnlyDictionary<string, SensorDescriptor> catalog, IEnumerable<string> existingShow, IEnumerable<string> existingGraph, IReadOnlyDictionary<string, int>? existingModes, bool combine, IReadOnlyDictionary<string, double?>? live, bool showLegend, string scaleMode, double lineThickness, IReadOnlyDictionary<string, int>? colors, string lhmSummary)
-        : this(boxTitle, componentKey, catalog, existingShow, existingGraph, existingModes, combine, live, showLegend, scaleMode, lineThickness, colors, lhmSummary, "Auto")
-    {
-    }
-
-    public SensorPickerWindow(string boxTitle, string componentKey, IReadOnlyDictionary<string, SensorDescriptor> catalog, IEnumerable<string> existingShow, IEnumerable<string> existingGraph, IReadOnlyDictionary<string, int>? existingModes, bool combine, IReadOnlyDictionary<string, double?>? live, bool showLegend, string scaleMode, double lineThickness, IReadOnlyDictionary<string, int>? colors, string lhmSummary, string networkSpeedUnit)
+    public SensorPickerWindow(string boxTitle, string componentKey, IReadOnlyDictionary<string, SensorDescriptor> catalog, IEnumerable<string> existingShow, IEnumerable<string> existingGraph, IReadOnlyDictionary<string, int>? existingModes, IReadOnlyDictionary<string, double?>? live, string scaleMode, double lineThickness, IReadOnlyDictionary<string, int>? colors, string lhmSummary, string networkSpeedUnit)
     {
         _componentKey = componentKey;
         _catalog = catalog;
         _live = live ?? new Dictionary<string, double?>(StringComparer.Ordinal);
         _lhmSummary = lhmSummary ?? "";
         NetworkSpeedUnit = networkSpeedUnit is "B/s" or "KB/s" or "MB/s" or "GB/s" ? networkSpeedUnit : "Auto";
-        CombineGraphs = combine;
-        GraphShowLegend = showLegend;
         GraphScaleMode = scaleMode is "Fixed" ? "Fixed" : "Auto";
         GraphLineThickness = Math.Clamp(lineThickness <= 0 ? 1.4 : lineThickness, 0.8, 3.0);
         if (colors is not null) _colors = new Dictionary<string, int>(colors, StringComparer.Ordinal);
@@ -298,8 +289,6 @@ public partial class SensorPickerWindow : Window
             if (m == 0) m = (int)RowMode.Text;
             SensorModes[id] = m;
         }
-        CombineGraphs = false;
-        GraphShowLegend = false;
         GraphScaleMode = (ScaleBox.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Tag?.ToString() ?? "Auto";
         if (ThicknessBox.SelectedItem is System.Windows.Controls.ComboBoxItem tb && tb.Tag?.ToString() is string ts && double.TryParse(ts, System.Globalization.CultureInfo.InvariantCulture, out double td))
             GraphLineThickness = td;

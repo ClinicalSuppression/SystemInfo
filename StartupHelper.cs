@@ -11,16 +11,6 @@ public static class StartupHelper
 
     public static string ExePath => Environment.ProcessPath ?? string.Empty;
 
-    public static bool IsStartWithWindows()
-    {
-        try
-        {
-            using var key = Registry.CurrentUser.OpenSubKey(RunPath, false);
-            return key?.GetValue(ValueName) is string s && !string.IsNullOrWhiteSpace(s);
-        }
-        catch { return false; }
-    }
-
     public static void ApplyStartWithWindows(bool enabled)
     {
         try
@@ -61,7 +51,10 @@ public static class StartupHelper
             string exe = ExePath;
             if (string.IsNullOrWhiteSpace(exe)) exe = Process.GetCurrentProcess().MainModule?.FileName ?? "";
             if (string.IsNullOrWhiteSpace(exe)) return false;
-            var psi = new ProcessStartInfo(exe, "--elevated") { Verb = "runas", UseShellExecute = true };
+            // Forward the original args in addition to --elevated so a re-launched instance
+            // (UAC prompt) still honors --json/--minimized/--profile etc.
+            string quoted = args is null ? "" : string.Join(" ", args.Select(a => a.Contains(' ') ? $"\"{a}\"" : a));
+            var psi = new ProcessStartInfo(exe, quoted.Length > 0 ? quoted + " --elevated" : "--elevated") { Verb = "runas", UseShellExecute = true };
             Process.Start(psi);
             return true;
         }

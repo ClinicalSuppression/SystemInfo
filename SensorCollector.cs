@@ -7,13 +7,6 @@ using LhmIVisitor = LibreHardwareMonitor.Hardware.IVisitor;
 
 namespace SystemInfo;
 
-public sealed class GadgetData
-{
-    public DateTime Time { get; set; }
-    public TimeSpan Uptime { get; set; }
-    public Dictionary<string, double?> Values { get; } = new(StringComparer.Ordinal);
-}
-
 public sealed class UnifiedSensorCollector : IDisposable
 {
     private LhmComputer? _computer;
@@ -149,20 +142,46 @@ public sealed class UnifiedSensorCollector : IDisposable
     /// GPU memory: total capacity is derived from the complementary Used/Free pair (or, when present, the Total sensor).
     /// Power / clock / fan / current: max bound is raised to the greatest value LHM has ever recorded for that sensor.
     /// </summary>
-    private void PatchLiveBounds(Dictionary<string, double?> live)
+    // Precomputed lookups for PatchLiveBounds (built lazily on first refresh tick).
+    private sealed record GpuMemGroup(SensorDescriptor? Used, SensorDescriptor? Free, SensorDescriptor? Total);
+    private static readonly Dictionary<string, double> _lastCap = new(StringComparer.Ordinal);
+    private int _patchTick;
+    private List<GpuMemGroup>? _gpuMemGroups;
+    private List<SensorDescriptor>? _maxSweepCat;
+
+    private void BuildPatchSweepCache()
     {
-        foreach (var group in _catalog.Values
-            .Where(d => d.Name.StartsWith("GPU Memory", StringComparison.OrdinalIgnoreCase)
-                     && d.Category.Equals("SmallData", StringComparison.OrdinalIgnoreCase))
-            .GroupBy(d => d.ComponentKey))
+        _gpuMemGroups = new List<GpuMemGroup>();
+        foreach (var kv in _catalog.Values.GroupBy(d => d.ComponentKey))
         {
             SensorDescriptor? used = null, free = null, total = null;
-            foreach (var d in group)
+            foreach (var d in kv)
             {
+                if (d.Name.StartsWith("GPU Memory", StringComparison.OrdinalIgnoreCase) is false) continue;
+                if (d.Category.Equals("SmallData", StringComparison.OrdinalIgnoreCase) is false) continue;
                 if (d.Name.Equals("GPU Memory Used", StringComparison.OrdinalIgnoreCase)) used = d;
                 else if (d.Name.Equals("GPU Memory Free", StringComparison.OrdinalIgnoreCase)) free = d;
                 else if (d.Name.Equals("GPU Memory Total", StringComparison.OrdinalIgnoreCase)) total = d;
             }
+            if (used is not null || free is not null || total is not null)
+                _gpuMemGroups.Add(new GpuMemGroup(used, free, total));
+        }
+        _maxSweepCat = _catalog.Values
+            .Where(d => d.Category.Equals("Power", StringComparison.OrdinalIgnoreCase)
+                     || d.Category.Equals("Clock", StringComparison.OrdinalIgnoreCase)
+                     || d.Category.Equals("Fan", StringComparison.OrdinalIgnoreCase)
+                     || d.Category.Equals("Current", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+
+    private void PatchLiveBounds(Dictionary<string, double?> live)
+    {
+        if (_gpuMemGroups is null) BuildPatchSweepCache();
+        // Full sweep only every 10th call (≈10 s at 1 Hz); other ticks leave previously-derived bounds in place.
+        if (++_patchTick % 10 != 1) return;
+        foreach (var group in _gpuMemGroups!)
+        {
+            SensorDescriptor? used = group.Used, free = group.Free, total = group.Total;
             double? cap = null;
             if (total is not null && live.TryGetValue(total.Id, out double? tv) && tv.HasValue)
             {
@@ -176,17 +195,19 @@ public sealed class UnifiedSensorCollector : IDisposable
             }
             if (cap.HasValue)
             {
-                if (used is not null) { used.Min = 0; used.Max = Math.Max(used.Max, cap.Value); }
-                if (free is not null) { free.Min = 0; free.Max = Math.Max(free.Max, cap.Value); }
-                if (total is not null) { total.Min = 0; total.Max = Math.Max(total.Max, cap.Value); }
+                // Raise stored cap only when it grew meaningfully (>20%) or on first observation.
+                string key = group.Used?.ComponentKey ?? group.Free?.ComponentKey ?? group.Total?.ComponentKey ?? "";
+                if (!_lastCap.TryGetValue(key, out double last) || cap.Value > last * 1.2)
+                    _lastCap[key] = cap.Value;
+                double applied = _lastCap[key];
+
+                if (used is not null) { used.Min = 0; used.Max = Math.Max(used.Max, applied); }
+                if (free is not null) { free.Min = 0; free.Max = Math.Max(free.Max, applied); }
+                if (total is not null) { total.Min = 0; total.Max = Math.Max(total.Max, applied); }
             }
         }
-        foreach (var d in _catalog.Values)
+        foreach (var d in _maxSweepCat!)
         {
-            if (!d.Category.Equals("Power", StringComparison.OrdinalIgnoreCase)
-             && !d.Category.Equals("Clock", StringComparison.OrdinalIgnoreCase)
-             && !d.Category.Equals("Fan", StringComparison.OrdinalIgnoreCase)
-             && !d.Category.Equals("Current", StringComparison.OrdinalIgnoreCase)) continue;
             if (!_sensorsById.TryGetValue(d.Id, out var s)) continue;
             float? rec;
             try { rec = s.Max; } catch { continue; }

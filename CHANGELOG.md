@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Memory/event leak (primary defect):** rows of graph-enabled sensors were never unsubscribed from the process-wide `CompositionTarget.Rendering` event on row replacement, `Detach()` (new) is now called on row replacement, box rebuild, box removal and before all box destruction; `MainWindow.RebuildBoxes` detaches every box before clearing; `Layout.SensorIds` set changes reset sticky widths so purged sensors shrink back.
+- **Corrupt `layout.json` now surfaces:** `LoadOrNull()` distinguishes missing (first run) from corrupt; corrupt primary *and* backup are copied aside as `layout.json.corrupt-<timestamp>` and logged; the app then rebuilds the stock layout instead of showing an empty window.
+- **Layout save path hardened:** unique tmp, fsync, and `File.Replace` for atomic swap (copy+move fallback); backup failures are logged, orphan tmp cleaned.
+- **Terminal embedding can no longer hijack unrelated windows:** only the spawned process (direct) or a process that is an ancestor of it (console host/Windows Terminal) can be embedded/hidden; arbitrary `ConsoleWindowClass`/`Cascadia` windows created by the user during the poll window are no longer captured or hidden.
+- **`SensorPickerWindow` OK no longer wipes** `CombineGraphs`/`GraphShowLegend` and removes dead plumb-through for those properties (`BoxLayout`, `WindowLayout` untouched). Settings Refresh preset resolution now uses `ScaleHelper.UpdateCadence` (nearest-preset snap; never emits 0).
+- **Theme rollback:** if `ThemeService.Apply` throws mid-publish, caches roll back to the previous palette instead of leaving mixed themes.
+- **Placeholder bugs:** self-elevation forwards original CLI args (`--minimized`, `--json`, …); layout save on close persists restored (not minimized) bounds; `DispatcherUnhandledException` no longer spams MessageBox — deduped to ≤1 balloon notice per minute; tray icon updated (tooltip no longer mentions the gadget) and old `ContextMenuStrip` is disposed; background image cache invalidates on mtime change; two-process-box shared tick cache.
+
+### Changed
+- **Dead code removed:** header graph canvas, legend panel, zoom-wheel wiring, `DrawGraph`, `GraphBrush`, `GadgetData`, `StickyMin`, `SectionToText`, `BuildPreviewBrush`, `IsStartWithWindows`, `RefreshThumb`, `AppBindings`, `SearchFilter`/`ApplySearchFilter`, `ColorBlindSafe` (unused), no-op Rx boxes, broken temp files, `|| true` disjunct, double-redundant tag comparisons, unused `ox/oy`, `_suppressTermCombo` no-op.
+- **Row reuse keys:** string interpolation keys replaced by zero-alloc `RowLayoutKey` value type.
+- **Graphs:** LINQ-free inner loop (clamps to `WindowSamples`, `ClipToBounds`), history capacity is shared (`SensorHistory.DefaultCapacity`), graph canvas recreated in-place only when its size actually changes (position preserved).
+- **GPU memory bound sweep** is throttled to one pass per 10 ticks with a 20% growth threshold and a prebuilt cache (was full-catalog LINQ GroupBy per tick).
+- **Process box snapshot sharing:** process list cached for ~1.5 s so two process boxes do not double the shell cost; Process snapshot is rebuilt at most once per refresh tick.
+- **Snap computation** allocates one transient list per drag frame instead of `Append().ToArray()` chains; `GraphScale` header legend rendering is gone entirely.
+
+### Known-good verification
+- Build `-warnaserror` clean; 168/168 unit tests pass.
+
 ## [1.0.1] — 2026-11-09
 
 ### Added

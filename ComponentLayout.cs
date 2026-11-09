@@ -48,11 +48,9 @@ namespace SystemInfo
         public List<string> SensorIds { get; set; } = [];
         public List<string> GraphSensorIds { get; set; } = [];
         public string GraphScaleMode { get; set; } = "Auto"; // Auto (history+descriptor) | Fixed (descriptor Min/Max only)
-        public bool GraphShowLegend { get; set; } = true;
         public double GraphLineThickness { get; set; } = 1.4;
         public Dictionary<string, int> GraphSeriesColors { get; set; } = new(StringComparer.Ordinal); // sensorId -> palette index 0..5
         public Dictionary<string, int> SensorModes { get; set; } = new(StringComparer.Ordinal);
-        public bool CombineGraphs { get; set; } = true;
         public bool Locked { get; set; } = false;       // per-box lock (in addition to global BoxesLocked)
         public int GraphZoom { get; set; } = 48;        // history samples shown (48–300, Ctrl+wheel zooms)
         public string NetworkSpeedUnit { get; set; } = "Auto"; // Auto | B/s | KB/s | MB/s | GB/s (throughput sensors)
@@ -62,7 +60,6 @@ namespace SystemInfo
         public string ProcessSort { get; set; } = "Cpu"; // Cpu | Ram | Name | Threads
         public string AppId { get; set; } = "cmd";      // legacy single app
         public string AppArgs { get; set; } = "";
-        public List<string> AppBindings { get; set; } = []; // "appId|args" per entry; if empty falls back to AppId/AppArgs
     }
 
     /// <summary>Window layout + global locks + independent scaling.</summary>
@@ -80,8 +77,6 @@ namespace SystemInfo
         public int GraphScale { get; set; } = 2;         // 0..4
         public string ThemeMode { get; set; } = "System"; // System | Light | Dark
         public string ThemeScheme { get; set; } = "Midnight"; // Midnight | Aurora | Ember | Paper
-        public string SearchFilter { get; set; } = "";
-        public bool ColorBlindSafe { get; set; } = false;
         public bool MinimizeToTray { get; set; } = false;
         public bool StartWithWindows { get; set; } = false;
         public bool StartAsAdministrator { get; set; } = false;
@@ -148,6 +143,33 @@ namespace SystemInfo
         public static bool ModeHasText(int mode) => (mode & (int)RowMode.Text) != 0;
         public static bool ModeHasBar(int mode) => (mode & (int)RowMode.Bar) != 0;
         public static bool ModeHasGraph(int mode) => (mode & (int)RowMode.Graph) != 0;
+
+        /// <summary>Refresh cadence presets shared by the Settings window and unit tests.</summary>
+        public static class UpdateCadence
+        {
+            /// <summary>Key, user-facing combo display text, value in ms.</summary>
+            public static readonly IReadOnlyList<(string Key, string Display, int Value)> Presets = new[]
+            {
+                ("Normal", "Normal — 1000 ms", 1000),
+                ("Eco", "Eco — 2000 ms", 2000),
+                ("Fast", "Fast — 500 ms", 500),
+                ("Fastest", "Fastest — 250 ms", 250),
+            };
+
+            /// <summary>The preset value closest to <paramref name="storedMs"/>.</summary>
+            public static int Nearest(int storedMs)
+                => Presets.Select(p => p.Value).OrderBy(v => Math.Abs(v - storedMs)).First();
+
+            /// <summary>The display text for the preset <paramref name="value"/> matches exactly, else the Normal display.</summary>
+            public static string DisplayFor(int value)
+                => Presets.FirstOrDefault(p => p.Value == value).Display ?? Presets[0].Display;
+
+            /// <summary>The preset value for <paramref name="display"/> (exact match, else Normal=1000).</summary>
+            public static int FromDisplay(string? display)
+                => Presets.FirstOrDefault(p => p.Display == display).Value is int v && v != 0 ? v : 1000;
+
+            public static IEnumerable<string> Displays => Presets.Select(p => p.Display);
+        }
 
         /// <summary>Logical combined-graph groups: only same box + same category + same unit combine.</summary>
         public static string GraphGroup(string componentKey, string category, string unit) => $"{componentKey}|{category}|{unit}";
@@ -315,11 +337,12 @@ namespace SystemInfo
         }
     }
 
-    /// <summary>Ring buffer for one sensor's history (zoomable 48–300).</summary>
+    /// <summary>Ring buffer for one sensor's history (windowed for the graph).</summary>
     public sealed class SensorHistory
     {
-        private readonly List<double> _ordered = new(48); // oldest..newest; tiny counts
-        public int Capacity { get; set; } = 48;
+        public const int DefaultCapacity = 300;
+        private readonly List<double> _ordered = new(DefaultCapacity); // oldest..newest; tiny counts
+        public int Capacity { get; set; } = DefaultCapacity;
         public int Count => _ordered.Count;
         public IReadOnlyList<double> Values => _ordered;
 

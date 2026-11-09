@@ -17,90 +17,45 @@ public static class LayoutStore
     }
     public static string BackupFilePath => LayoutFilePath + ".bak";
 
-    /// <summary>True when a saved layout (or its backup) exists. Used to decide whether this is a first run.</summary>
-    public static bool ExistsOnDisk => File.Exists(LayoutFilePath) || File.Exists(BackupFilePath);
-
-    public static WindowLayout LoadOrDefault()
+    /// <summary>
+    /// Load the saved layout. Returns null when there is no usable saved layout:
+    /// either missing (first run) or corrupt (primary and backup both unreadable — the corrupt file is preserved next to the original as layout.json.corrupt-&lt;timestamp&gt; and logged).
+    /// The caller decides between a stock layout build (first-run UX) and a blank/default fallback.
+    /// </summary>
+    public static WindowLayout? LoadOrNull()
     {
         string path = LayoutFilePath;
-        if (File.Exists(path))
-        {
-            try
-            {
-                var w = JsonSerializer.Deserialize<WindowLayout>(File.ReadAllText(path), Opts);
-                if (w is not null && w.Boxes is not null) return Normalize(w);
-            }
-            catch { }
-            string bak = BackupFilePath;
-            if (File.Exists(bak))
-            {
-                try
-                {
-                    var w = JsonSerializer.Deserialize<WindowLayout>(File.ReadAllText(bak), Opts);
-                    if (w is not null && w.Boxes is not null) return Normalize(w);
-                }
-                catch { }
-            }
-        }
-        return Normalize(new WindowLayout());
-    }
-
-    /// <summary>
-    /// Attempts to load layout from disk. Falls back to the .bak backup if the primary file is missing or corrupt.
-    /// Returns true on success, false if both fail.
-    /// </summary>
-    public static bool TryLoad(out WindowLayout layout)
-    {
-        // Primary.
-        string path = LayoutFilePath;
-        if (File.Exists(path))
-        {
-            try
-            {
-                var w = JsonSerializer.Deserialize<WindowLayout>(File.ReadAllText(path), Opts);
-                if (w is not null && w.Boxes is not null)
-                {
-                    layout = Normalize(w);
-                    return true;
-                }
-            }
-            catch { }
-        }
-        // Backup fallback.
-        layout = new WindowLayout();
-        return TryLoadFromBackup(out layout);
-    }
-
-    /// <summary>
-    /// Attempts to load layout from backup if primary fails. Returns true on success, false if both fail.
-    /// </summary>
-    public static bool TryLoadFromBackup(out WindowLayout layout)
-    {
         string bak = BackupFilePath;
-        if (!File.Exists(bak))
+        var bad = new List<string>();
+        foreach (var candidate in new[] { path, bak })
         {
-            layout = new WindowLayout();
-            return false;
+            if (!File.Exists(candidate)) continue;
+            try
+            {
+                var w = JsonSerializer.Deserialize<WindowLayout>(File.ReadAllText(candidate), Opts);
+                if (w is not null && w.Boxes is not null) return Normalize(w);
+                bad.Add(candidate); // valid JSON but not a layout object
+            }
+            catch { bad.Add(candidate); }
         }
+        foreach (string c in bad) PreserveCorrupt(c);
+        return null;
+    }
 
+    /// <summary>Load saved layout, or defaults when there is none (used only on legacy callsites that require a non-null layout).</summary>
+    public static WindowLayout LoadOrDefault() => LoadOrNull() ?? Normalize(new WindowLayout());
+
+    private static void PreserveCorrupt(string path)
+    {
         try
         {
-            var w = JsonSerializer.Deserialize<WindowLayout>(File.ReadAllText(bak), Opts);
-            if (w is not null && w.Boxes is not null)
-            {
-                layout = Normalize(w);
-                return true;
-            }
-            else
-            {
-                layout = new WindowLayout();
-                return false;
-            }
+            string dest = path + ".corrupt-" + DateTime.Now.ToString("yyyyMMddHHmmss");
+            File.Copy(path, dest, overwrite: false);
+            try { App.LogError(new Exception($"Layout file '{path}' was corrupt and was preserved as '{dest}'")); } catch { }
         }
-        catch
+        catch (Exception ex)
         {
-            layout = new WindowLayout();
-            return false;
+            try { App.LogError(ex); } catch { }
         }
     }
 
@@ -114,21 +69,48 @@ public static class LayoutStore
         try
         {
             Directory.CreateDirectory(dir);
-            string tmp = path + ".tmp";
-            File.WriteAllText(tmp, JsonSerializer.Serialize(layout, Opts));
-            if (File.Exists(path))
+            string tmp = path + ".tmp-" + Environment.ProcessId;
+            try
             {
-                try
+                // Flush bytes, then swap atomically. File.Replace on Windows uses MoveFileEx(REPLACE_EXISTING) semantics where available.
+                using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
                 {
-                    File.Copy(path, BackupFilePath, overwrite: true);
+                    var bytes = JsonSerializer.SerializeToUtf8Bytes(layout, Opts);
+                    fs.Write(bytes, 0, bytes.Length);
+                    fs.Flush(flushToDisk: true);
                 }
-                catch { }
+                if (File.Exists(path))
+                {
+                    try
+                    {
+                        if (File.Exists(BackupFilePath))
+                            File.Replace(tmp, path, BackupFilePath, ignoreMetadataErrors: true);
+                        else
+                        {
+                            File.Copy(path, BackupFilePath, overwrite: true);
+                            File.Move(tmp, path, overwrite: true);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        try { App.LogError(new Exception("Layout save: backup rotation failed; primary is still safe", ex)); } catch { }
+                        File.Move(tmp, path, overwrite: true);
+                    }
+                }
+                else
+                {
+                    File.Move(tmp, path, overwrite: true);
+                }
+                return true;
             }
-            File.Move(tmp, path, overwrite: true);
-            return true;
+            finally
+            {
+                try { if (File.Exists(tmp)) File.Delete(tmp); } catch { }
+            }
         }
-        catch
+        catch (Exception ex)
         {
+            try { App.LogError(new Exception($"Layout save failed at {path}", ex)); } catch { }
             return false;
         }
     }
@@ -155,8 +137,6 @@ public static class LayoutStore
         w.GraphScale = Math.Clamp(w.GraphScale, 0, 4);
         if (w.ThemeMode is not ("System" or "Light" or "Dark")) w.ThemeMode = "System";
         if (w.ThemeScheme is not ("Midnight" or "Aurora" or "Ember" or "Paper")) w.ThemeScheme = "Midnight";
-        w.SearchFilter ??= "";
-
         w.BackgroundImagePath ??= "";
         // If the path is set but the file vanished, treat it as disabled (checkbox unchecks itself on reopen).
         if (!string.IsNullOrWhiteSpace(w.BackgroundImagePath) && !File.Exists(w.BackgroundImagePath)) w.BackgroundImagePath = "";
@@ -199,7 +179,6 @@ public static class LayoutStore
             if (b.ProcessSort is not ("Cpu" or "Ram" or "Name" or "Threads")) b.ProcessSort = "Cpu";
             b.AppId ??= "cmd";
             b.AppArgs ??= "";
-            b.AppBindings ??= [];
             // Terminals only. Migrate legacy non-terminal bindings (explorer, notepad, ...) to cmd.
             if (!AppHelper.IsAllowedAppId(b.AppId)) b.AppId = "cmd";
         }
@@ -314,7 +293,6 @@ public static class LayoutStore
                 SensorIds = chosen.Select(d => d.Id).ToList(),
                 SensorModes = modes,
                 GraphSensorIds = chosen.Where(d => ScaleHelper.ModeHasGraph(modes[d.Id])).Select(d => d.Id).ToList(),
-                CombineGraphs = true,
             };
         }
 

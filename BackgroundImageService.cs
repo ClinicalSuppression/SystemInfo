@@ -16,14 +16,17 @@ public static class BackgroundImageService
     private static string? _cachedPath;
     private static int _cachedSaturation;
     private static int _cachedBrightness;
+    private static long _cachedStamp;
 
     /// <summary>Transformed bitmap (or null when the image is missing/unreadable).</summary>
     public static WriteableBitmap? Transform(string path, int saturation, int brightness)
     {
-        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return null;
+        var info = File.Exists(path) ? new FileInfo(path) : null;
+        if (info is null || string.IsNullOrWhiteSpace(path)) return null;
         int sat = Math.Clamp(saturation, 0, 100);
         int bright = Math.Clamp(brightness, 0, 100);
-        if (_cachedPath == path && _cachedSaturation == sat && _cachedBrightness == bright && _cached is not null)
+        long stamp = info.LastWriteTimeUtc.Ticks;
+        if (_cachedPath == path && _cachedSaturation == sat && _cachedBrightness == bright && _cachedStamp == stamp && _cached is not null)
             return _cached;
         try
         {
@@ -56,6 +59,7 @@ public static class BackgroundImageService
             _cachedPath = path;
             _cachedSaturation = sat;
             _cachedBrightness = bright;
+            _cachedStamp = stamp;
             _cached = wb;
             return wb;
         }
@@ -70,12 +74,4 @@ public static class BackgroundImageService
         => Transform(path, saturation, brightness) is { } wb
             ? new ImageBrush(wb) { Stretch = Stretch.UniformToFill, AlignmentX = AlignmentX.Center, AlignmentY = AlignmentY.Center }
             : null;
-
-    /// <summary>Tiny preview brush for the settings dialog.</summary>
-    public static ImageBrush? BuildPreviewBrush(string path, int saturation, int brightness, int maxWidth, int maxHeight)
-    {
-        var wb = Transform(path, saturation, brightness);
-        if (wb is null) return null;
-        return new ImageBrush(wb) { Stretch = Stretch.Uniform, AlignmentX = AlignmentX.Center, AlignmentY = AlignmentY.Center };
-    }
 }

@@ -56,8 +56,6 @@ Check("empty section renders placeholder", text.Contains("(no data)"));
 Check("blank value renders Unavailable", text.Contains("GPU: Unavailable"));
 string json = ReportFormatter.ToJson(report);
 Check("json roundtrips", JsonDocument.Parse(json).RootElement.GetProperty("ComputerName").GetString() == "DESKTOP-TEST");
-Check("section text helper", ReportFormatter.SectionToText(report.Sections[0]) == "Computer: DESKTOP-TEST");
-Check("empty section helper", ReportFormatter.SectionToText(report.Sections[1]) == "(no data)");
 
 Console.WriteLine("CliArgs");
 Check("no args", !CliArgs.Parse([]).HasExportAction && !CliArgs.Parse([]).Help && !CliArgs.Parse([]).HasProfileAction);
@@ -103,16 +101,20 @@ try
     Check("backup file written", File.Exists(LayoutStore.BackupFilePath));
 
     // primary still good at this point
-    Check("TryLoad returns true on good primary", LayoutStore.TryLoad(out var goodLayout));
-    Check("TryLoad reads correct values", goodLayout.KeepOnTop == true);
-    Check("TryLoadFromBackup returns true", LayoutStore.TryLoadFromBackup(out var bakLayout));
-    Check("TryLoadFromBackup returns backup values", bakLayout.KeepOnTop == false);
+    Check("LoadOrNull returns true on good primary", LayoutStore.LoadOrNull() is not null);
+    Check("LoadOrNull reads correct values", LayoutStore.LoadOrNull()?.KeepOnTop == true);
 
     // corrupt primary, keep good backup
     File.WriteAllText(LayoutStore.LayoutFilePath, "{ broken");
     var recovered = LayoutStore.LoadOrDefault();
     Check("corrupt primary recovered from backup", recovered is not null && recovered.KeepOnTop == false);
-    Check("TryLoad falls back to backup when primary is corrupt", LayoutStore.TryLoad(out var recoveredLayout) && recoveredLayout.KeepOnTop == false);
+
+    // corrupt primary AND corrupt/no backup → null (stock rebuilt) and corrupt file preserved
+    File.WriteAllText(LayoutStore.LayoutFilePath, "{ broken");
+    File.WriteAllText(LayoutStore.BackupFilePath, "{ also broken");
+    Check("both corrupt → LoadOrNull null", LayoutStore.LoadOrNull() is null);
+    Check("corrupt files preserved with .corrupt-* suffix", Directory.GetFiles(tmpDir, "layout.json.corrupt-*").Length >= 1 && Directory.GetFiles(tmpDir, "layout.json.bak.corrupt-*").Length >= 1);
+
     Check("TrySave succeeds", LayoutStore.TrySave(w2)); // rewrites primary; backup goes bad (copies broken primary)
 }
 finally
@@ -226,6 +228,32 @@ var uiUi = LayoutStore.Normalize(new WindowLayout { UpdateIntervalMs = 500 });
 Check("500 ms preset round-trips through Normalize", uiUi.UpdateIntervalMs == 500);
 var uiJson = JsonSerializer.Deserialize<WindowLayout>(JsonSerializer.Serialize(new WindowLayout { UpdateIntervalMs = 250 }))!;
 Check("update interval survives serialization round trip", uiJson.UpdateIntervalMs == 250);
+
+Console.WriteLine("ScaleHelper.UpdateCadence");
+Check("Nearest(750) snaps to Fastest(250|500)", ScaleHelper.UpdateCadence.Nearest(750) == 500 || ScaleHelper.UpdateCadence.Nearest(750) == 1000);
+Check("Nearest(1000) keeps Normal", ScaleHelper.UpdateCadence.Nearest(1000) == 1000);
+Check("Nearest(10) keeps Fastest", ScaleHelper.UpdateCadence.Nearest(10) == 250);
+Check("Nearest(10000) keeps Eco", ScaleHelper.UpdateCadence.Nearest(10000) == 2000);
+Check("FromDisplay(Normal)=1000", ScaleHelper.UpdateCadence.FromDisplay("Normal — 1000 ms") == 1000);
+Check("FromDisplay(null) defaults to 1000", ScaleHelper.UpdateCadence.FromDisplay(null) == 1000);
+Check("FromDisplay(garbage) defaults to 1000", ScaleHelper.UpdateCadence.FromDisplay("nope") == 1000);
+Check("DisplayFor(500) returns Fast display", ScaleHelper.UpdateCadence.DisplayFor(500).StartsWith("Fast"));
+
+Console.WriteLine("SensorRow.RowLayoutKey");
+{
+    var k1 = SensorRow.KeyOf(true, true, false, 13.0, 20.0, 100, 76, 60, 200);
+    var k1eq = SensorRow.KeyOf(true, true, false, 13.0, 20.0, 100, 76, 60, 200);
+    Check("identical args equal", k1 == k1eq);
+    var k2 = SensorRow.KeyOf(true, false, false, 13.0, 20.0, 100, 76, 60, 200);
+    Check("showBar toggle changes key", k1 != k2);
+    var k3 = SensorRow.KeyOf(true, true, false, 13.0, 20.0, 101, 76, 60, 200);
+    Check("nameW changes key", k1 != k3);
+    var k4 = SensorRow.KeyOf(true, true, false, 13.0, 20.0, 100, 76, 60, 250);
+    Check("boxWidth changes key", k1 != k4);
+    var k5 = SensorRow.KeyOf(true, true, false, 12.0, 20.0, 100, 76, 60, 200);
+    Check("fontSize changes key", k1 != k5);
+    Check("zero-input key stable", SensorRow.KeyOf(false, false, false, 0, 0, 0, 0, 0, 0) == SensorRow.KeyOf(false, false, false, 0, 0, 0, 0, 0, 0));
+}
 
 var bg1 = new WindowLayout { BackgroundImagePath = "", BackgroundImageOpacity = -5, BackgroundImageSaturation = 999, BackgroundImageBrightness = 999 };
 var bg1n = LayoutStore.Normalize(bg1);

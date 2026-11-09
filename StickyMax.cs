@@ -15,16 +15,3 @@ public sealed class StickyMax
 
     public void Reset(double initial = 0) => Value = initial;
 }
-
-/// <summary>Monotonic low-watermark tracker (unused for now, keeps the API symmetric).</summary>
-public sealed class StickyMin
-{
-    public double Value { get; private set; } = double.PositiveInfinity;
-
-    public void Add(double observed)
-    {
-        if (observed < Value) Value = observed;
-    }
-
-    public void Reset(double initial = double.PositiveInfinity) => Value = initial;
-}

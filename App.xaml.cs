@@ -41,7 +41,7 @@ namespace SystemInfo
                 {
                     ComponentKey = key, ComponentType = type, Title = name, SourceTitle = name,
                     X = 8, Y = y, Width = 640, Height = 400,
-                    SensorIds = sensorIds, GraphSensorIds = sensorIds.ToList(), SensorModes = modes, CombineGraphs = true,
+                    SensorIds = sensorIds, GraphSensorIds = sensorIds.ToList(), SensorModes = modes,
                 });
                 y += 420;
             }
@@ -52,15 +52,17 @@ namespace SystemInfo
         {
             base.OnStartup(e);
 
+            // Deduped dialog-free handler: log every failure, toast via the tray balloon (max 1 per minute).
+            DateTime lastUnhandledShown = DateTime.MinValue;
             DispatcherUnhandledException += (sender, args) =>
             {
                 args.Handled = true;
-                LogError(args.Exception);
-                MessageBox.Show(
-                    $"Something went wrong, but the app kept running.\n\n{args.Exception.Message}\n\nDetails were written to the log in %LOCALAPPDATA%\\SystemInfo\\app.log.",
-                    "SystemInfo",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Error);
+                try { LogError(args.Exception); } catch { }
+                if ((DateTime.UtcNow - lastUnhandledShown).TotalSeconds >= 60)
+                {
+                    lastUnhandledShown = DateTime.UtcNow;
+                    try { TrayService.ShowBalloon("A non-fatal error occurred. Details are in app.log."); } catch { }
+                }
             };
 
             AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
