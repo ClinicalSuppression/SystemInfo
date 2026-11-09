@@ -203,6 +203,18 @@ Check("name already containing Temp unchanged", ScaleHelper.ShortSensorLabel(Des
 Check("null sensor label is empty", ScaleHelper.ShortSensorLabel(null) == "");
 
 Console.WriteLine("WindowLayout.BackgroundImage fields");
+Console.WriteLine("StickyMax");
+var s = new StickyMax();
+Check("starts at zero", s.Value == 0);
+s.Add(30); s.Add(20); s.Add(40); s.Add(35); s.Add(10);
+Check("monotonic non-decreasing", s.Value == 40);
+s.Add(41); s.Add(39);
+Check("grows on new max", s.Value == 41);
+s.Reset();
+Check("reset returns to zero", s.Value == 0);
+s.Add(7);
+Check("add after reset works", s.Value == 7);
+
 Console.WriteLine("WindowLayout.UpdateIntervalMs");
 var uiClamp = LayoutStore.Normalize(new WindowLayout { UpdateIntervalMs = 1 });
 Check("too-fast interval clamps to 250 ms", uiClamp.UpdateIntervalMs == 250);

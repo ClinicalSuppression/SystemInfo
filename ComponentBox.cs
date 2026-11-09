@@ -73,6 +73,9 @@ public sealed class ComponentBox : Border
     private const double DragThreshold = 4;
     private WpfPoint _dragStart;
     private double _startLeft, _startTop;
+    // Sticky maximum width seen so far in this box — value/name widths only ever grow, so text/bars/graphs stop jittering horizontally on every update.
+    private readonly StickyMax _stickyNameW = new();
+    private readonly StickyMax _stickyValueW = new();
     internal string LatestGraphDebug = "";
 
     public ComponentBox(BoxLayout layout, Canvas canvas, double fontSize, double barHeight, double graphHeight)
@@ -806,6 +809,7 @@ public sealed class ComponentBox : Border
         double inner = Math.Max(120, viewport - 12);
         // Compute name width from the ACTUAL longest sensor name in this box — no content clipping allowed.
         double nameMin = 0;
+        int maxValLen = 0;
         if (anyText)
         {
             foreach (string id in Layout.SensorIds)
@@ -813,22 +817,16 @@ public sealed class ComponentBox : Border
                 catalog.TryGetValue(id, out SensorDescriptor? d2);
                 string nm = ScaleHelper.ShortSensorLabel(d2) is { Length: > 0 } sn ? sn : id;
                 nameMin = Math.Max(nameMin, ScaleHelper.MeasureTextWidth(nm, fontSize) + 8);
-            }
-        }
-        double nameW = anyText ? Math.Clamp(nameMin, 60, 260) : 0;
-        // Right-justified value must never clip: size it to the longest formatted value in this box.
-        int maxValLen = 0;
-        if (anyText)
-        {
-            foreach (string vid in Layout.SensorIds)
-            {
-                if (!ScaleHelper.ModeHasText(GetMode(vid, catalog.TryGetValue(vid, out var vd) ? vd : null))) continue;
-                values.TryGetValue(vid, out double? vv);
-                string s = vd is null ? "—" : ScaleHelper.Format(vv, vd, Layout.NetworkSpeedUnit);
+                if (!ScaleHelper.ModeHasText(GetMode(id, d2))) continue;
+                values.TryGetValue(id, out double? vv);
+                string s = d2 is null ? "—" : ScaleHelper.Format(vv, d2, Layout.NetworkSpeedUnit);
                 maxValLen = Math.Max(maxValLen, s.Length);
             }
         }
-        double valueW = anyText ? Math.Clamp(Math.Max(44, (fontSize + 1) * (maxValLen * 0.58 + 0.5)), 44, 160) : 0;
+        _stickyNameW.Add(nameMin);
+        _stickyValueW.Add(Math.Max(44, (fontSize + 1) * (maxValLen * 0.58 + 0.5)));
+        double nameW = anyText ? Math.Clamp(_stickyNameW.Value, 60, 260) : 0;
+        double valueW = anyText ? Math.Clamp(_stickyValueW.Value, 44, 160) : 0;
         // Keep the whole row inside the box at narrow widths (fixes right-side cutoff).
         double minBar = anyBar ? ScaleHelper.BarMinWidth : 0;
         if (inner < nameW + valueW + 12 + minBar)
@@ -868,7 +866,9 @@ public sealed class ComponentBox : Border
             if (_rowCache.TryGetValue(stale, out var staleRow)) staleRow.UnsubscribeRenderingFrame();
             _rowCache.Remove(stale);
         }
+        if (keep.Count == 0) { _stickyNameW.Reset(); _stickyValueW.Reset(); }
     }
+
 
     private int GetMode(string id, SensorDescriptor? d)
     {
